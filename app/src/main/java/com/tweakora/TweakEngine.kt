@@ -616,7 +616,8 @@ fun TweaksAndTimeMachineScreen(
 
     var activeSection by remember { mutableIntStateOf(0) } // 0=Library, 1=Time Machine, 2=History
     var selectedCategory by remember { mutableStateOf(TweakCategory.ALL) }
-    var currentValues by remember { mutableStateOf>(emptyMap()) }
+    var currentValues: Map<String, String> by remember { mutableStateOf(emptyMap()) }
+
     var history by remember { mutableStateOf<List<TweakHistoryRecord>>(emptyList()) }
     var snapshots by remember { mutableStateOf<List<TimeMachineSnapshot>>(emptyList()) }
     var inspectedTweak by remember { mutableStateOf<TweakSpec?>(null) }

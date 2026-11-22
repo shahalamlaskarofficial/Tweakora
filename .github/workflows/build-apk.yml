@@ -27,17 +27,17 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+      - name: Build Optimized Release APK
+        run: gradle assembleRelease --stacktrace
 
       - name: Prepare APK for Release
-        run: cp app/build/outputs/apk/debug/app-debug.apk Tweakora.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Tweakora.apk
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Tweakora Build #${{ github.run_number }}
-          body: "Automated Tweakora APK build — download Tweakora.apk below and install directly."
+          tag_name: v1.1.${{ github.run_number }}
+          name: Tweakora v1.1 Build #${{ github.run_number }}
+          body: "Optimized Release APK — smooth 120fps Liquid Glass UI & organized Glass Boxes."
           files: Tweakora.apk
           make_latest: true

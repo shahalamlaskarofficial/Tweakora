@@ -22,7 +22,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -270,7 +269,7 @@ object ToolsEngine {
         roots.forEach { dir ->
             runCatching {
                 dir.walkTopDown().maxDepth(3).forEach { f ->
-                    if (f.isFile && f.length() >= 10L * 1024L * 1024L) { // >= 10 MB
+                    if (f.isFile && f.length() >= 10L * 1024L * 1024L) {
                         found.add(f)
                     }
                 }
@@ -293,28 +292,28 @@ object ToolsEngine {
             q.contains("heat") || q.contains("temp") || q.contains("thermal") -> buildString {
                 appendLine("Thermal Diagnosis (${String.format(Locale.US, "%.1f°C", dna.batteryTempC)} — ${dna.thermalStatus}):")
                 if (dna.batteryTempC >= 39f) {
-                    appendLine("• Your battery is elevated. Charging while gaming or locked 120Hz display refresh is the #1 heat source.")
-                    appendLine("• Action: Lower Peak Refresh Rate to 60–90Hz in Tweaks and avoid fast charging during 3D loads.")
+                    appendLine("• Battery temperature is elevated. Charging while gaming or locked high refresh rate is the top heat driver.")
+                    appendLine("• Action: Lower Peak Refresh Rate to 60–90Hz in Tweaks and avoid fast charging during heavy 3D loads.")
                 } else {
                     appendLine("• Temperatures are currently cool (${dna.batteryTempC}°C). No thermal throttling is restricting ${dna.socName}.")
                 }
             }
             q.contains("battery") || q.contains("drain") -> buildString {
                 appendLine("Battery Audit (${dna.batteryPercent}% • ${dna.batteryHealth} • ${dna.batteryVoltageMv} mV):")
-                appendLine("• Enable 'Cached Apps Freezer' and 'Wi-Fi Scan Throttling' in the Tweaks tab to cut idle drain without turning on harsh Battery Saver.")
-                appendLine("• Keep screen timeout at 30–60s to protect your display and save screen-on power.")
+                appendLine("• Enable 'Cached Apps Freezer' and 'Wi-Fi Scan Throttling' in Tweaks to cut idle drain without turning on harsh Battery Saver.")
+                appendLine("• Keep screen timeout at 30–60s to extend screen-on life.")
             }
             q.contains("bottleneck") || q.contains("lag") || q.contains("fps") -> buildString {
                 appendLine("Bottleneck Analysis for ${dna.manufacturer} ${dna.model}:")
                 appendLine("• RAM: ${(dna.ramFraction * 100).toInt()}% used (${dna.usedRamMb}/${dna.totalRamMb} MB) — ${if (dna.ramFraction > 0.82f) "High pressure; close heavy background apps before gaming." else "Healthy headroom."}")
-                appendLine("• Storage: ${String.format(Locale.US, "%.1f GB", dna.freeStorageGb)} free — ${if (dna.storageFraction > 0.85f) "Low space hurts flash speed; run Storage Cleaner." else "Plenty of flash headroom."}")
-                appendLine("• Run the Performance Consistency Test in Monitor → Perf Lab to measure real sustained multi-core stability.")
+                appendLine("• Storage: ${String.format(Locale.US, "%.1f GB", dna.freeStorageGb)} free — ${if (dna.storageFraction > 0.85f) "Low space slows flash I/O; clean large files." else "Healthy flash headroom."}")
+                appendLine("• Run the CPU Consistency Benchmark in Monitor → Perf Lab for real stability measurements.")
             }
             else -> buildString {
                 appendLine("Tweakora Intelligence Summary (${dna.manufacturer} ${dna.model}):")
                 appendLine("• Hardware: ${dna.socName} (${dna.cpuCores} cores) + ${dna.gpuRenderer}.")
                 appendLine("• Current Privilege Mode: ${dna.privilegeTier.badge}.")
-                appendLine("• Top Safe Recommendations: Set Window & Transition animations to 0.5x for instant UI snappiness, enable Private DNS for privacy, and capture a System Time Machine baseline snapshot before tweaking.")
+                appendLine("• Top Recommendations: Use 0.5x animations for instant UI speed, enable Private DNS for privacy, and save a Time Machine snapshot first.")
             }
         }
     }
@@ -328,14 +327,16 @@ fun SettingsAndToolsScreen(
     themeConfig: GlassThemeConfig,
     onUpdateTheme: (GlassThemeConfig) -> Unit,
     onOpenRootLab: () -> Unit,
+    onOpenSmartRules: () -> Unit,
     onRefreshDna: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cfg = LocalGlassConfig.current
 
-    var subTab by remember { mutableIntStateOf(0) } // 0=Health & AI, 1=Hardware, 2=Storage & Privacy, 3=Settings
+    var subTab by remember { mutableIntStateOf(0) } // 0=Health+AI, 1=Hardware, 2=Storage+Apps, 3=Settings
     var appsAudit by remember { mutableStateOf<List<AppExposureInfo>>(emptyList()) }
+    var appSearch by remember { mutableStateOf("") }
     var largeFiles by remember { mutableStateOf<List<ScannedFileItem>>(emptyList()) }
     var scanningStorage by remember { mutableStateOf(false) }
     var confirmDeleteFile by remember { mutableStateOf<ScannedFileItem?>(null) }
@@ -366,8 +367,8 @@ fun SettingsAndToolsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -385,7 +386,7 @@ fun SettingsAndToolsScreen(
 
         item {
             GlassSegmentedTabs(
-                items = listOf("Health+AI", "Hardware", "Storage", "Settings"),
+                items = listOf("Health", "Hardware", "Apps", "Settings"),
                 selectedIndex = subTab,
                 onSelect = { subTab = it }
             )
@@ -394,7 +395,7 @@ fun SettingsAndToolsScreen(
         toastMsg?.let { m ->
             item {
                 GlassCard(tint = GlassPalette.CyberCyan, glowAccent = GlassPalette.CyberCyan) {
-                    Text(m, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(m, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -402,24 +403,33 @@ fun SettingsAndToolsScreen(
         // SUB-TAB 0: DEVICE HEALTH SCANNER + TWEAKORA INTELLIGENCE AI
         if (subTab == 0) {
             item {
+                GlassActionBanner(
+                    title = "Smart Rules & Optimization Simulator",
+                    subtitle = "Automate thermal/battery alerts & preview tweaks before applying",
+                    icon = Icons.Rounded.Bolt,
+                    onClick = onOpenSmartRules
+                )
+            }
+
+            item {
                 GlassCard(tint = cfg.accent.primary, glowAccent = cfg.accent.primary) {
                     Text("TWEAKORA INTELLIGENCE (OFFLINE)", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
                     Spacer(Modifier.height(6.dp))
-                    Text("Tap a diagnostic question to analyze your real device telemetry:", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
+                    Text("Tap a diagnostic prompt to analyze your real device telemetry:", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(10.dp))
                     val prompts = listOf("Analyze My Phone", "Why Is It Heating?", "Check Bottlenecks", "Battery Drain Audit")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(prompts) { p ->
                             FilterChip(
                                 selected = false,
                                 onClick = { aiResponse = ToolsEngine.answerDiagnosticQuery(dna, p) },
-                                label = { Text(p, fontSize = 11.sp) }
+                                label = { Text(p, fontSize = 12.5.sp) }
                             )
                         }
                     }
                     aiResponse?.let { ans ->
-                        Spacer(Modifier.height(10.dp))
-                        Text(ans.trim(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(12.dp))
+                        Text(ans.trim(), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -435,8 +445,10 @@ fun SettingsAndToolsScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.title, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(2.dp))
                             Text(item.detail, style = MaterialTheme.typography.bodySmall)
                         }
+                        Spacer(Modifier.width(8.dp))
                         GlassStatusPill(item.status.label.uppercase(), c)
                     }
                 }
@@ -448,7 +460,7 @@ fun SettingsAndToolsScreen(
             item {
                 GlassActionBanner(
                     title = "Export Complete Device DNA Report",
-                    subtitle = "Copy full SoC, GPU, Display, Kernel & ${sensors.size} Sensors report",
+                    subtitle = "Copy SoC, GPU, Display, Kernel & ${sensors.size} Sensors",
                     icon = Icons.Rounded.ContentCopy,
                     onClick = {
                         val report = buildString {
@@ -473,8 +485,9 @@ fun SettingsAndToolsScreen(
             item {
                 GlassCard {
                     Text("PROCESSOR & GRAPHICS", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                    Spacer(Modifier.height(6.dp))
-                    GlassSpecRow("Model", "${dna.manufacturer} ${dna.model} (${dna.deviceCodeName})")
+                    Spacer(Modifier.height(8.dp))
+                    GlassSpecRow("Model", "${dna.manufacturer} ${dna.model}")
+                    GlassSpecRow("Codename", dna.deviceCodeName)
                     GlassSpecRow("Processor", dna.socName)
                     GlassSpecRow("Architecture", dna.supportedAbis.joinToString(", "))
                     GlassSpecRow("CPU Cores", "${dna.cpuCores}")
@@ -487,7 +500,7 @@ fun SettingsAndToolsScreen(
             item {
                 GlassCard {
                     Text("SYSTEM & DISPLAY", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     GlassSpecRow("Display", dna.displayText)
                     GlassSpecRow("Android", "${dna.androidVersion} (API ${dna.sdkInt})")
                     GlassSpecRow("Security Patch", dna.securityPatch)
@@ -499,15 +512,16 @@ fun SettingsAndToolsScreen(
             item {
                 GlassCard {
                     Text("PHYSICAL SENSORS (${sensors.size})", style = MaterialTheme.typography.labelMedium, color = GlassPalette.WarmAmber)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     sensors.take(20).forEach { s ->
                         Text("• $s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(3.dp))
                     }
                 }
             }
         }
 
-        // SUB-TAB 2: STORAGE INTELLIGENCE + PRIVACY EXPOSURE AUDITOR
+        // SUB-TAB 2: STORAGE INTELLIGENCE + FULL APP & PRIVACY MANAGER
         if (subTab == 2) {
             item {
                 GlassCard(glowAccent = cfg.accent.secondary) {
@@ -519,17 +533,17 @@ fun SettingsAndToolsScreen(
                         dna.storageFraction,
                         cfg.accent.secondary
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         GlassPillButton(
-                            text = if (scanningStorage) "Scanning..." else "Scan Large & Duplicate Files",
+                            text = if (scanningStorage) "Scanning..." else "Scan Large Files",
                             onClick = {
                                 scope.launch {
                                     scanningStorage = true
                                     largeFiles = ToolsEngine.scanLargeFiles()
                                     scanningStorage = false
                                     if (largeFiles.isEmpty()) {
-                                        toastMsg = "No >10MB files accessible. Grant All Files Access if needed."
+                                        toastMsg = "No >10MB files accessible. Tap Grant Access to scan all folders."
                                     }
                                 }
                             },
@@ -559,7 +573,7 @@ fun SettingsAndToolsScreen(
                     GlassCard(glowAccent = if (f.isDuplicateHint) GlassPalette.WarmAmber else cfg.accent.secondary) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(f.name, style = MaterialTheme.typography.titleMedium, fontSize = 13.sp, maxLines = 1)
+                                Text(f.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                                 Text(
                                     String.format(Locale.US, "%.1f MB%s", f.sizeMb, if (f.isDuplicateHint) " • Possible Duplicate" else ""),
                                     style = MaterialTheme.typography.bodySmall,
@@ -575,64 +589,91 @@ fun SettingsAndToolsScreen(
             }
 
             item {
-                Text("PRIVACY INTELLIGENCE & APPS (${appsAudit.size})", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
+                GlassCard {
+                    Text("APP MANAGER & PRIVACY EXPOSURE (${appsAudit.size})", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = appSearch,
+                        onValueChange = { appSearch = it },
+                        placeholder = { Text("Search installed apps...") },
+                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
-            items(appsAudit.take(25), key = { it.packageName }) { app ->
+            val filteredApps = appsAudit.filter {
+                appSearch.isBlank() || it.appName.contains(appSearch, ignoreCase = true) || it.packageName.contains(appSearch, ignoreCase = true)
+            }.take(30)
+
+            items(filteredApps, key = { it.packageName }) { app ->
                 val expColor = when {
                     app.exposureScore >= 60 -> GlassPalette.StatusDanger
                     app.exposureScore >= 30 -> GlassPalette.WarmAmber
                     else -> GlassPalette.StatusGood
                 }
-                GlassCard(
-                    glowAccent = expColor,
-                    onClick = {
-                        runCatching {
-                            val i = Intent(
-                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.fromParts("package", app.packageName, null)
-                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(i)
-                        }
-                    }
-                ) {
+                GlassCard(glowAccent = expColor) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(app.appName, style = MaterialTheme.typography.titleMedium, fontSize = 14.sp)
+                            Text(app.appName, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (app.riskyPermissions.isEmpty()) "No sensitive permissions granted"
+                                if (app.riskyPermissions.isEmpty()) "Clean permissions"
                                 else "Active: ${app.riskyPermissions.joinToString(", ")}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        GlassStatusPill("SCORE ${app.exposureScore}", expColor)
+                        GlassStatusPill("RISK ${app.exposureScore}", expColor)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            context.packageManager.getLaunchIntentForPackage(app.packageName)?.let {
+                                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(it)
+                            }
+                        }) { Text("Launch", fontSize = 13.sp, color = cfg.accent.secondary) }
+
+                        TextButton(onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.packageName, null))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        }) { Text("App Info", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface) }
+
+                        TextButton(onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.packageName}"))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        }) { Text("Uninstall", fontSize = 13.sp, color = GlassPalette.StatusDanger) }
                     }
                 }
             }
         }
 
-        // SUB-TAB 3: SETTINGS, PERSONALIZATION, UPDATE TRACKER & ABOUT
+        // SUB-TAB 3: SETTINGS, PERSONALIZATION, UPDATE TRACKER & ABOUT DEVELOPER
         if (subTab == 3) {
             item {
                 GlassCard(glowAccent = cfg.accent.primary) {
-                    Text("GLASS THEME & ACCENTS", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(GlassThemeMode.entries) { m ->
-                            FilterChip(
-                                selected = themeConfig.mode == m,
-                                onClick = { onUpdateTheme(themeConfig.copy(mode = m)) },
-                                label = { Text(m.label, fontSize = 11.5.sp) }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
+                    Text("LIQUID GLASS THEME & ACCENTS", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
+                    Spacer(Modifier.height(10.dp))
+                    GlassSegmentedTabs(
+                        items = GlassThemeMode.entries.map { it.label },
+                        selectedIndex = GlassThemeMode.entries.indexOf(themeConfig.mode),
+                        onSelect = { idx -> onUpdateTheme(themeConfig.copy(mode = GlassThemeMode.entries[idx])) }
+                    )
+                    Spacer(Modifier.height(10.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(GlassAccent.entries) { a ->
                             FilterChip(
                                 selected = themeConfig.accent == a,
                                 onClick = { onUpdateTheme(themeConfig.copy(accent = a)) },
-                                label = { Text(a.label, fontSize = 11.5.sp) }
+                                label = { Text(a.label, fontSize = 12.5.sp) }
                             )
                         }
                     }
@@ -642,8 +683,8 @@ fun SettingsAndToolsScreen(
             item {
                 GlassCard {
                     Text("PERMISSIONS HUB", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         GlassPillButton(
                             text = "Grant Shizuku",
                             onClick = {
@@ -670,36 +711,77 @@ fun SettingsAndToolsScreen(
             item {
                 GlassCard {
                     Text("UPDATE IMPACT TRACKER", style = MaterialTheme.typography.labelMedium, color = GlassPalette.WarmAmber)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     updates.forEach { u ->
                         val date = SimpleDateFormat("MMM dd, yyyy", Locale.US).format(Date(u.timestampMs))
-                        Text("Android ${u.androidVersion} • Patch ${u.securityPatch} ($date)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Android ${u.androidVersion} • Patch ${u.securityPatch} ($date)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text("Kernel: ${u.kernel}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                         Spacer(Modifier.height(6.dp))
                     }
                 }
             }
 
+            // DEDICATED ABOUT DEVELOPER CARD
             item {
-                GlassCard(glowAccent = cfg.accent.secondary) {
-                    Text("ABOUT TWEAKORA", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Tweakora — More Control. More Power.", style = MaterialTheme.typography.titleMedium)
-                    Text("Version ${BuildConfig.VERSION_NAME} • Built for Android", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(6.dp))
-                    GlassSpecRow("Developer", "Shahalam Laskar")
-                    GlassSpecRow("Contact", "shahalamlaskar.official@gmail.com")
+                GlassCard(tint = cfg.accent.primary, glowAccent = cfg.accent.secondary) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Person, contentDescription = null, tint = cfg.accent.secondary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("ABOUT DEVELOPER", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
+                        }
+                        GlassStatusPill("CREATOR", cfg.accent.primary)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text("Shahalam Laskar", style = MaterialTheme.typography.headlineSmall, fontSize = 21.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Independent Android developer building Tweakora — a transparent, zero-fake-controls smartphone control centre crafted for real performance, diagnostics, and user control.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    GlassSpecRow("Developer Name", "Shahalam Laskar")
+                    GlassSpecRow("Email", "shahalamlaskar.official@gmail.com")
+                    GlassSpecRow("App Version", "Tweakora ${BuildConfig.VERSION_NAME}")
+                    GlassSpecRow("Tagline", "More Control. More Power.")
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        GlassPillButton(
+                            text = "Email Developer",
+                            onClick = {
+                                runCatching {
+                                    val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:shahalamlaskar.official@gmail.com")).apply {
+                                        putExtra(Intent.EXTRA_SUBJECT, "Tweakora Feedback")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(i)
+                                }.onFailure {
+                                    toastMsg = "No email app found. Email copied instead."
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        GlassPillButton(
+                            text = "Copy Email",
+                            onClick = {
+                                val cm = context.getSystemService(ClipboardManager::class.java)
+                                cm?.setPrimaryClip(ClipData.newPlainText("Developer Email", "shahalamlaskar.official@gmail.com"))
+                                toastMsg = "Developer email copied to clipboard."
+                            },
+                            gradient = listOf(cfg.accent.primary, cfg.accent.glow),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
     }
 
-    // Safe Cleanup Confirmation Dialog
     confirmDeleteFile?.let { fileItem ->
         AlertDialog(
             onDismissRequest = { confirmDeleteFile = null },
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("Confirm Safe Cleanup", fontSize = 16.sp) },
+            title = { Text("Confirm Safe Cleanup", style = MaterialTheme.typography.titleMedium) },
             text = {
                 Text(
                     "Permanently delete '${fileItem.name}' (${String.format(Locale.US, "%.1f MB", fileItem.sizeMb)})?\nPath: ${fileItem.path}",
@@ -784,8 +866,8 @@ fun RootLabScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -793,11 +875,7 @@ fun RootLabScreen(
                     Text("ADVANCED KERNEL INTERFACE", style = MaterialTheme.typography.labelMedium, color = GlassPalette.WarmAmber)
                     Text("Root Laboratory", style = MaterialTheme.typography.headlineSmall)
                 }
-                GlassPillButton(
-                    text = "Back",
-                    onClick = onBack,
-                    gradient = listOf(cfg.accent.primary, cfg.accent.secondary)
-                )
+                GlassPillButton(text = "Back", onClick = onBack, gradient = listOf(cfg.accent.primary, cfg.accent.secondary))
             }
         }
 
@@ -812,13 +890,7 @@ fun RootLabScreen(
                         Text(if (isRooted) "Root Access Active" else rootMethod, style = MaterialTheme.typography.titleMedium)
                         Text("Kernel: ${dna?.kernelVersion ?: "Unknown"}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
-                    GlassPillButton(
-                        text = "Request Root",
-                        onClick = {
-                            onRefreshDna()
-                            loadRootTelemetry()
-                        }
-                    )
+                    GlassPillButton(text = "Check Root", onClick = { onRefreshDna(); loadRootTelemetry() })
                 }
             }
         }
@@ -826,20 +898,19 @@ fun RootLabScreen(
         statusMsg?.let { msg ->
             item {
                 GlassCard(tint = GlassPalette.CyberCyan, glowAccent = GlassPalette.CyberCyan) {
-                    Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(msg, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
 
-        // CPU Governor & Kernel Controls
         item {
             GlassCard(glowAccent = cfg.accent.primary) {
                 Text("CPU GOVERNOR & KERNEL VM", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 GlassSpecRow("Active Governor (CPU0)", currentGov)
                 GlassSpecRow("VM Swappiness", swappiness)
                 if (availableGovs.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(availableGovs) { gov ->
                             FilterChip(
@@ -854,7 +925,7 @@ fun RootLabScreen(
                                         loadRootTelemetry()
                                     }
                                 },
-                                label = { Text(gov, fontSize = 11.sp) }
+                                label = { Text(gov, fontSize = 12.sp) }
                             )
                         }
                     }
@@ -865,7 +936,6 @@ fun RootLabScreen(
             }
         }
 
-        // Kernel Profile Vault
         item {
             GlassCard(glowAccent = cfg.accent.secondary) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -880,14 +950,14 @@ fun RootLabScreen(
                         }
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 if (vault.isEmpty()) {
-                    Text("Save your working kernel governor & VM configuration before testing new tweaks.", style = MaterialTheme.typography.bodySmall)
+                    Text("Save your working kernel configuration before testing changes.", style = MaterialTheme.typography.bodySmall)
                 } else {
                     vault.forEach { p ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
-                                Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                Text(p.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                                 Text("Gov: ${p.governor} • Swap: ${p.swappiness}", style = MaterialTheme.typography.bodySmall)
                             }
                             TextButton(onClick = {
@@ -899,29 +969,29 @@ fun RootLabScreen(
                                     statusMsg = if (ok) "Restored ${p.name}" else out
                                     loadRootTelemetry()
                                 }
-                            }) { Text("Restore", color = GlassPalette.CyberCyan, fontSize = 12.sp) }
+                            }) { Text("Restore", color = GlassPalette.CyberCyan, fontSize = 13.sp) }
                         }
                     }
                 }
             }
         }
 
-        // System Property Explorer (Works even without root for read-only inspection!)
         item {
             GlassCard {
-                Text("SYSTEM PROPERTY VIEWER (getprop)", style = MaterialTheme.typography.labelMedium, color = GlassPalette.TextMuted)
+                Text("SYSTEM PROPERTY VIEWER (getprop)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = propQuery,
                     onValueChange = { propQuery = it },
-                    placeholder = { Text("Filter properties (e.g. ro.soc, debug, dalvik)", fontSize = 12.sp) },
+                    placeholder = { Text("Filter properties (e.g. ro.soc, debug)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 val filteredProps = propsList.filter { propQuery.isBlank() || it.contains(propQuery, ignoreCase = true) }.take(25)
                 filteredProps.forEach { line ->
-                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(2.dp))
                 }
             }
         }

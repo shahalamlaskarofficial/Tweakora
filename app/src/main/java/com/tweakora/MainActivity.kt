@@ -19,11 +19,9 @@ import android.os.PowerManager
 import android.os.StatFs
 import android.view.Display
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -39,11 +37,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -77,6 +70,18 @@ data class DeviceDna(
 ) {
     val ramFraction: Float get() = if (totalRamMb > 0) (usedRamMb.toFloat() / totalRamMb).coerceIn(0f, 1f) else 0f
     val storageFraction: Float get() = if (totalStorageGb > 0f) (usedStorageGb / totalStorageGb).coerceIn(0f, 1f) else 0f
+}
+
+/**
+ * Isolated telemetry state holder: keeps live updates completely decoupled from the Navigation Bar
+ * so the sliding Liquid Glass dock NEVER recomposes when telemetry ticks.
+ */
+object TelemetryStore {
+    var dna by mutableStateOf<DeviceDna?>(null)
+    var ramHistory by mutableStateOf<List<Float>>(emptyList())
+    var tempHistory by mutableStateOf<List<Float>>(emptyList())
+    var ruleLogs by mutableStateOf<List<RuleEventLog>>(emptyList())
+    var chargeAlert by mutableStateOf<String?>(null)
 }
 
 private data class StaticHardwareCache(
@@ -226,17 +231,16 @@ private fun TweakoraLiquidShell(
     onResetAll: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val navController = rememberNavController()
-
-    var dna by remember { mutableStateOf<DeviceDna?>(null) }
-    var ramHistory by remember { mutableStateOf(listOf<Float>()) }
-    var tempHistory by remember { mutableStateOf(listOf<Float>()) }
+    var activeTab by remember { mutableStateOf("home") }
+    var overlayScreen by remember { mutableStateOf<String?>(null) }
     var isPaused by remember { mutableStateOf(false) }
     var isAppForeground by remember { mutableStateOf(true) }
-    var ruleLogs by remember { mutableStateOf(listOf<RuleEventLog>()) }
-    var chargeAlertText by remember { mutableStateOf<String?>(null) }
     var lastChargeAlarmMs by remember { mutableLongStateOf(0L) }
+
+    BackHandler(enabled = overlayScreen != null || activeTab != "home") {
+        if (overlayScreen != null) overlayScreen = null
+        else activeTab = "home"
+    }
 
     DisposableEffect(context) {
         val owner = context as? LifecycleOwner
@@ -248,26 +252,27 @@ private fun TweakoraLiquidShell(
         onDispose { owner?.lifecycle?.removeObserver(obs) }
     }
 
+    // Background-safe telemetry loop writing to TelemetryStore (never recomposes the bottom dock!)
     LaunchedEffect(isPaused, isAppForeground, settings.pollIntervalSec, settings.chargeGuardEnabled, settings.chargeLimitPct) {
         while (isActive) {
-            if (isAppForeground && (!isPaused || dna == null)) {
+            if (isAppForeground && (!isPaused || TelemetryStore.dna == null)) {
                 val snap = SystemInspector.capture(context, requestRoot = false)
-                dna = snap
-                ramHistory = (ramHistory + snap.ramFraction).takeLast(14)
-                tempHistory = (tempHistory + ((snap.batteryTempC - 20f) / 30f).coerceIn(0.05f, 1f)).takeLast(14)
+                TelemetryStore.dna = snap
+                TelemetryStore.ramHistory = (TelemetryStore.ramHistory + snap.ramFraction).takeLast(14)
+                TelemetryStore.tempHistory = (TelemetryStore.tempHistory + ((snap.batteryTempC - 20f) / 30f).coerceIn(0.05f, 1f)).takeLast(14)
 
                 val fired = SmartRulesEngine.evaluateLive(context, snap)
-                if (fired.isNotEmpty()) ruleLogs = (fired + ruleLogs).take(20)
+                if (fired.isNotEmpty()) TelemetryStore.ruleLogs = (fired + TelemetryStore.ruleLogs).take(20)
 
                 if (settings.chargeGuardEnabled && snap.isCharging && (snap.batteryPercent >= settings.chargeLimitPct || snap.batteryTempC >= 41f)) {
-                    chargeAlertText = "Charge Guard: ${snap.batteryPercent}% (${String.format(Locale.US, "%.1f°C", snap.batteryTempC)}) — Unplug charger to protect battery health."
+                    TelemetryStore.chargeAlert = "Charge Guard: ${snap.batteryPercent}% (${String.format(Locale.US, "%.1f°C", snap.batteryTempC)}) — Unplug to protect battery."
                     val now = System.currentTimeMillis()
                     if (now - lastChargeAlarmMs > 120_000L) {
                         lastChargeAlarmMs = now
                         BypassChargingEngine.playChargeGuardTone(context)
                     }
                 } else {
-                    chargeAlertText = null
+                    TelemetryStore.chargeAlert = null
                 }
             }
             if (settings.pollIntervalSec <= 0) break
@@ -275,98 +280,40 @@ private fun TweakoraLiquidShell(
         }
     }
 
-    val navTabs = listOf(
-        Triple("home", "Home", Icons.Rounded.Dashboard),
-        Triple("tweaks", "Tweaks", Icons.Rounded.Tune),
-        Triple("gaming", "Gaming", Icons.Rounded.SportsEsports),
-        Triple("monitor", "Monitor", Icons.Rounded.QueryStats),
-        Triple("settings", "Tools", Icons.Rounded.Settings)
-    )
-    val entry by navController.currentBackStackEntryAsState()
-    val currentRoute = entry?.destination?.route
-
-    fun goTab(route: String) {
-        if (currentRoute == route) return
-        navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
+    val navTabs = remember {
+        listOf(
+            Triple("home", "Home", Icons.Rounded.Dashboard),
+            Triple("tweaks", "Tweaks", Icons.Rounded.Tune),
+            Triple("gaming", "Gaming", Icons.Rounded.SportsEsports),
+            Triple("monitor", "Monitor", Icons.Rounded.QueryStats),
+            Triple("settings", "Tools", Icons.Rounded.Settings)
+        )
     }
 
     GlassBackdrop {
         Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            NavHost(
-                navController = navController,
-                startDestination = "home",
-                modifier = Modifier.fillMaxSize(),
-                enterTransition = { fadeIn(tween(180)) },
-                exitTransition = { fadeOut(tween(130)) },
-                popEnterTransition = { fadeIn(tween(180)) },
-                popExitTransition = { fadeOut(tween(130)) }
-            ) {
-                composable("home") {
-                    GlassHomeDashboard(
-                        dna = dna,
-                        ramHistory = ramHistory,
-                        tempHistory = tempHistory,
-                        latestRuleLog = ruleLogs.firstOrNull(),
-                        chargeAlertText = chargeAlertText,
-                        onOpenTab = { goTab(it) },
-                        onOpenSources = { navController.navigate("sources") },
-                        onOpenCleaner = { navController.navigate("cleaner") },
-                        onOpenRootLab = { navController.navigate("rootlab") },
-                        onOpenSmartRules = { navController.navigate("rules") },
-                        onCheckRoot = { scope.launch { dna = SystemInspector.capture(context, requestRoot = true) } }
-                    )
-                }
-                composable("tweaks") {
-                    TweaksAndTimeMachineScreen(
-                        deviceTier = dna?.privilegeTier ?: PrivilegeTier.STANDARD,
-                        onTierRefresh = { scope.launch { dna = SystemInspector.capture(context, requestRoot = true) } }
-                    )
-                }
-                composable("gaming") {
-                    Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) { GamingHubScreen(dna = dna) }
-                }
-                composable("monitor") {
-                    Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) {
-                        MonitorHubScreen(dna = dna, ramHistory = ramHistory, tempHistory = tempHistory, isMonitoringPaused = isPaused, onToggleMonitoring = { isPaused = !isPaused })
-                    }
-                }
-                composable("settings") {
-                    SettingsAndToolsScreen(
-                        dna = dna, themeConfig = themeConfig, settings = settings,
-                        onUpdateTheme = onUpdateTheme, onUpdateSettings = onUpdateSettings, onResetAll = onResetAll,
-                        onOpenCleaner = { navController.navigate("cleaner") },
-                        onOpenRootLab = { navController.navigate("rootlab") },
-                        onOpenSmartRules = { navController.navigate("rules") },
-                        onRefreshDna = { scope.launch { dna = SystemInspector.capture(context, requestRoot = true) } }
-                    )
-                }
-                composable("sources") {
-                    SourcesAndLabScreen(dna = dna, onBack = { navController.popBackStack() })
-                }
-                composable("cleaner") {
-                    CleanerAndBypassScreen(
-                        dna = dna, settings = settings, onUpdateSettings = onUpdateSettings,
-                        onRefreshDna = { scope.launch { dna = SystemInspector.capture(context, requestRoot = false) } },
-                        onBack = { navController.popBackStack() }
-                    )
-                }
-                composable("rootlab") {
-                    RootLabScreen(dna = dna, onBack = { navController.popBackStack() }, onRefreshDna = { scope.launch { dna = SystemInspector.capture(context, requestRoot = true) } })
-                }
-                composable("rules") {
-                    SmartRulesAndSimScreen(dna = dna, recentLogs = ruleLogs, onBack = { navController.popBackStack() })
-                }
-            }
+            // Isolated content host so telemetry recompositions stay inside active screen only
+            ActiveScreenHost(
+                activeTab = activeTab,
+                overlayScreen = overlayScreen,
+                themeConfig = themeConfig,
+                settings = settings,
+                isPaused = isPaused,
+                onSelectTab = { activeTab = it },
+                onOpenOverlay = { overlayScreen = it },
+                onCloseOverlay = { overlayScreen = null },
+                onTogglePause = { isPaused = !isPaused },
+                onUpdateTheme = onUpdateTheme,
+                onUpdateSettings = onUpdateSettings,
+                onResetAll = onResetAll
+            )
 
-            if (currentRoute !in listOf("rootlab", "rules", "cleaner", "sources")) {
+            // Isolated GPU-sliding dock (never touched by telemetry ticks!)
+            if (overlayScreen == null) {
                 LiquidGlassNavBar(
                     items = navTabs,
-                    currentRoute = currentRoute,
-                    onSelect = { goTab(it) },
+                    currentRoute = activeTab,
+                    onSelect = { activeTab = it },
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
@@ -375,17 +322,82 @@ private fun TweakoraLiquidShell(
 }
 
 @Composable
-private fun GlassHomeDashboard(
+private fun ActiveScreenHost(
+    activeTab: String,
+    overlayScreen: String?,
+    themeConfig: GlassThemeConfig,
+    settings: TweakoraSettings,
+    isPaused: Boolean,
+    onSelectTab: (String) -> Unit,
+    onOpenOverlay: (String) -> Unit,
+    onCloseOverlay: () -> Unit,
+    onTogglePause: () -> Unit,
+    onUpdateTheme: (GlassThemeConfig) -> Unit,
+    onUpdateSettings: (TweakoraSettings) -> Unit,
+    onResetAll: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val dna = TelemetryStore.dna
+
+    fun refreshNow(requestRoot: Boolean) {
+        scope.launch { TelemetryStore.dna = SystemInspector.capture(context, requestRoot = requestRoot) }
+    }
+
+    when (overlayScreen) {
+        "sources" -> SourcesAndLabScreen(dna = dna, onBack = onCloseOverlay)
+        "cleaner" -> CleanerAndBypassScreen(
+            dna = dna, settings = settings, onUpdateSettings = onUpdateSettings,
+            onRefreshDna = { refreshNow(false) }, onBack = onCloseOverlay
+        )
+        "rootlab" -> RootLabScreen(dna = dna, onBack = onCloseOverlay, onRefreshDna = { refreshNow(true) })
+        "rules" -> SmartRulesAndSimScreen(dna = dna, recentLogs = TelemetryStore.ruleLogs, onBack = onCloseOverlay)
+        else -> when (activeTab) {
+            "home" -> ExecutiveHomeDashboard(
+                dna = dna,
+                ramHistory = TelemetryStore.ramHistory,
+                tempHistory = TelemetryStore.tempHistory,
+                latestRuleLog = TelemetryStore.ruleLogs.firstOrNull(),
+                chargeAlertText = TelemetryStore.chargeAlert,
+                onOpenTab = onSelectTab,
+                onOpenOverlay = onOpenOverlay,
+                onCheckRoot = { refreshNow(true) }
+            )
+            "tweaks" -> TweaksAndTimeMachineScreen(
+                deviceTier = dna?.privilegeTier ?: PrivilegeTier.STANDARD,
+                onTierRefresh = { refreshNow(true) }
+            )
+            "gaming" -> Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) { GamingHubScreen(dna = dna) }
+            "monitor" -> Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) {
+                MonitorHubScreen(
+                    dna = dna, ramHistory = TelemetryStore.ramHistory, tempHistory = TelemetryStore.tempHistory,
+                    isMonitoringPaused = isPaused, onToggleMonitoring = onTogglePause
+                )
+            }
+            "settings" -> SettingsAndToolsScreen(
+                dna = dna, themeConfig = themeConfig, settings = settings,
+                onUpdateTheme = onUpdateTheme, onUpdateSettings = onUpdateSettings, onResetAll = onResetAll,
+                onOpenCleaner = { onOpenOverlay("cleaner") },
+                onOpenSources = { onOpenOverlay("sources") },
+                onOpenRootLab = { onOpenOverlay("rootlab") },
+                onOpenSmartRules = { onOpenOverlay("rules") },
+                onRefreshDna = { refreshNow(true) }
+            )
+        }
+    }
+}
+
+// ---------- CLEAN EXECUTIVE HOME DASHBOARD (ZERO DUPLICATES, ALL GLASS BOXES) ----------
+
+@Composable
+private fun ExecutiveHomeDashboard(
     dna: DeviceDna?,
     ramHistory: List<Float>,
     tempHistory: List<Float>,
     latestRuleLog: RuleEventLog?,
     chargeAlertText: String?,
     onOpenTab: (String) -> Unit,
-    onOpenSources: () -> Unit,
-    onOpenCleaner: () -> Unit,
-    onOpenRootLab: () -> Unit,
-    onOpenSmartRules: () -> Unit,
+    onOpenOverlay: (String) -> Unit,
     onCheckRoot: () -> Unit
 ) {
     val context = LocalContext.current
@@ -395,11 +407,6 @@ private fun GlassHomeDashboard(
     var activeProfile by remember { mutableStateOf(PerformanceProfile.BALANCED) }
     var profileFeedback by remember { mutableStateOf<String?>(null) }
     var chartTab by remember { mutableIntStateOf(0) }
-    var recentTweaks by remember { mutableStateOf<List<TweakHistoryRecord>>(emptyList()) }
-
-    LaunchedEffect(Unit) {
-        recentTweaks = withContext(Dispatchers.IO) { TweakStore.loadHistory(context).take(3) }
-    }
 
     if (dna == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = cfg.accent.secondary) }
@@ -416,52 +423,51 @@ private fun GlassHomeDashboard(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Header
+        // 1. Clean Top Header
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("TWEAKORA", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
                     Spacer(Modifier.height(2.dp))
                     Text("${dna.manufacturer} ${dna.model}", style = MaterialTheme.typography.headlineSmall)
-                    Text("Android ${dna.androidVersion} (API ${dna.sdkInt}) • ${dna.buildId}", style = MaterialTheme.typography.bodySmall)
+                    Text("Android ${dna.androidVersion} (API ${dna.sdkInt}) • ${dna.socName}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
                 Spacer(Modifier.width(8.dp))
                 GlassStatusPill(dna.privilegeTier.badge, tierColor)
             }
         }
 
-        // Active Alerts
+        // Active Alerts (Only shown when triggered)
         chargeAlertText?.let { alert ->
             item {
-                GlassCard(tint = GlassPalette.StatusGood, glowAccent = GlassPalette.StatusGood, onClick = onOpenCleaner) {
+                GlassCard(tint = GlassPalette.StatusGood, glowAccent = GlassPalette.StatusGood, onClick = { onOpenOverlay("cleaner") }) {
                     Text("CHARGE GUARD ALERT", style = MaterialTheme.typography.labelMedium, color = GlassPalette.StatusGood)
-                    Spacer(Modifier.height(2.dp))
                     Text(alert, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
         latestRuleLog?.let { log ->
             item {
-                GlassCard(tint = GlassPalette.WarmAmber, glowAccent = GlassPalette.WarmAmber, onClick = onOpenSmartRules) {
+                GlassCard(tint = GlassPalette.WarmAmber, glowAccent = GlassPalette.WarmAmber, onClick = { onOpenOverlay("rules") }) {
                     Text("SMART RULE: ${log.ruleName.uppercase()}", style = MaterialTheme.typography.labelMedium, color = GlassPalette.WarmAmber)
                     Text(log.detail, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
 
-        // 2. GLASS BOX 1: DEVICE HEALTH & PROFILE
+        // 2. GLASS BOX 1 — SYSTEM HEALTH & PERFORMANCE PROFILE
         item {
-            GlassBox(title = "Device Health & Profile", accent = healthColor, badge = dna.healthStatus.label.uppercase()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            GlassBox(title = "System Health & Profile", accent = healthColor, badge = dna.healthStatus.label.uppercase()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GlassRingGauge(dna.healthScore / 100f, "${dna.healthScore}", dna.healthStatus.label, "${dna.batteryPercent}% BAT")
                     Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(String.format(Locale.US, "%.1f°C • %s", dna.batteryTempC, dna.thermalStatus), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Text("${if (dna.isCharging) "Charging" else "On Battery"} • ${dna.batteryHealth}", style = MaterialTheme.typography.bodySmall)
                         Text("${dna.batteryVoltageMv} mV • ${dna.cpuCores} Cores", style = MaterialTheme.typography.bodySmall)
-                        Text("Active: ${activeProfile.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cfg.accent.secondary)
+                        Text("Mode: ${activeProfile.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cfg.accent.secondary)
                     }
                 }
                 GlassSegmentedTabs(
@@ -483,89 +489,47 @@ private fun GlassHomeDashboard(
             }
         }
 
-        // 3. GLASS BOX 2: UNIFIED CONTROL CENTRE (All 6 Hubs Organized Inside One Glass Box)
+        // 3. GLASS BOX 2 — LIVE VITALS 2x2 MATRIX & WAVEFORM
         item {
-            GlassBox(title = "Control Hub", accent = cfg.accent.primary, badge = "6 MODULES") {
+            GlassBox(title = "Live Vitals", accent = cfg.accent.secondary, badge = "ECO LIVE", collapsible = true, initiallyExpanded = true) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassBoxTile("Sources & Lab", "Sensors+Audio", Icons.Rounded.Sensors, cfg.accent.secondary, onOpenSources, Modifier.weight(1f))
-                    GlassBoxTile("Cleaner", "RAM & Bypass", Icons.Rounded.CleaningServices, GlassPalette.StatusGood, onOpenCleaner, Modifier.weight(1f))
+                    GlassStatCell("RAM", "${(dna.ramFraction * 100).toInt()}%", "${dna.usedRamMb}/${dna.totalRamMb} MB", cfg.accent.primary, { onOpenTab("monitor") }, Modifier.weight(1f))
+                    GlassStatCell("Storage", String.format(Locale.US, "%.1f GB", dna.freeStorageGb), "Free of ${String.format(Locale.US, "%.0f GB", dna.totalStorageGb)}", cfg.accent.secondary, { onOpenTab("settings") }, Modifier.weight(1f))
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassBoxTile("Tweaks", "24 controls", Icons.Rounded.Tune, cfg.accent.primary, { onOpenTab("tweaks") }, Modifier.weight(1f))
-                    GlassBoxTile("Gaming", "Autopsy & Hz", Icons.Rounded.SportsEsports, GlassPalette.ElectricBlue, { onOpenTab("gaming") }, Modifier.weight(1f))
+                    GlassStatCell("Battery", "${dna.batteryPercent}%", "${dna.batteryHealth} • ${dna.batteryVoltageMv}mV", GlassPalette.StatusGood, { onOpenOverlay("cleaner") }, Modifier.weight(1f))
+                    GlassStatCell("Thermal", String.format(Locale.US, "%.1f°C", dna.batteryTempC), dna.thermalStatus, if (dna.batteryTempC >= 39f) GlassPalette.WarmAmber else GlassPalette.NeonMagenta, { onOpenTab("monitor") }, Modifier.weight(1f))
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassBoxTile("Perf Labs", "Bench & Temp", Icons.Rounded.Speed, GlassPalette.WarmAmber, { onOpenTab("monitor") }, Modifier.weight(1f))
-                    GlassBoxTile("Smart Rules", "Auto & Sim", Icons.Rounded.Bolt, GlassPalette.NeonMagenta, onOpenSmartRules, Modifier.weight(1f))
-                }
-            }
-        }
-
-        // 4. GLASS BOX 3: LIVE TELEMETRY SOURCES
-        item {
-            GlassBox(
-                title = "Live Telemetry Sources",
-                accent = cfg.accent.secondary,
-                badge = "RAM ${(dna.ramFraction * 100).toInt()}%",
-                collapsible = true,
-                initiallyExpanded = true
-            ) {
-                GlassSegmentedTabs(
-                    listOf("RAM ${(dna.ramFraction * 100).toInt()}%", String.format(Locale.US, "Thermal %.1f°C", dna.batteryTempC)),
-                    chartTab,
-                    { chartTab = it }
-                )
+                GlassSegmentedTabs(listOf("RAM Wave", "Thermal Wave"), chartTab, { chartTab = it })
                 GlassWaveChart(if (chartTab == 0) ramHistory else tempHistory, if (chartTab == 0) cfg.accent.secondary else GlassPalette.NeonMagenta)
-                GlassGaugeRow("RAM Source", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, cfg.accent.primary)
-                GlassGaugeRow("Storage Source", String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", dna.usedStorageGb, dna.totalStorageGb, dna.freeStorageGb), dna.storageFraction, cfg.accent.secondary)
             }
         }
 
-        // 5. GLASS BOX 4: SYSTEM DNA SOURCES (Collapsible)
+        // 4. GLASS BOX 3 — SPECIALIZED UTILITIES (Dedicated tools not duplicated from bottom tabs)
         item {
-            GlassBox(
-                title = "System DNA Sources",
-                accent = cfg.accent.primary,
-                badge = "${dna.sensorCount} SENSORS",
-                collapsible = true,
-                initiallyExpanded = true
-            ) {
+            GlassBox(title = "Utilities & Hardware Labs", accent = cfg.accent.primary, badge = "DIRECT") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassBoxTile("RAM Cleaner", "Junk & Bypass", Icons.Rounded.CleaningServices, GlassPalette.StatusGood, { onOpenOverlay("cleaner") }, Modifier.weight(1f))
+                    GlassBoxTile("Sources Lab", "Sensors+Audio", Icons.Rounded.Sensors, cfg.accent.secondary, { onOpenOverlay("sources") }, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassBoxTile("Smart Rules", "Auto & Sim", Icons.Rounded.Bolt, GlassPalette.NeonMagenta, { onOpenOverlay("rules") }, Modifier.weight(1f))
+                    GlassBoxTile("Root Lab", dna.privilegeTier.badge, Icons.Rounded.Science, GlassPalette.WarmAmber, { onOpenOverlay("rootlab") }, Modifier.weight(1f))
+                }
+            }
+        }
+
+        // 5. GLASS BOX 4 — SYSTEM DNA (Collapsible)
+        item {
+            GlassBox(title = "System DNA", accent = cfg.accent.primary, badge = "${dna.sensorCount} SENSORS", collapsible = true, initiallyExpanded = false) {
                 GlassSpecRow("Processor", "${dna.socName} (${dna.cpuCores} Cores)")
                 GlassSpecRow("Live Clock", dna.peakLiveClockMhz?.let { "$it MHz peak" } ?: "SELinux Protected")
                 GlassSpecRow("GPU Renderer", dna.gpuRenderer)
                 GlassSpecRow("Display Panel", dna.displayText)
                 GlassSpecRow("Kernel", dna.kernelVersion)
-                GlassPillButton(
-                    text = "Open All Live Sensor & Audio Sources",
-                    onClick = onOpenSources,
-                    gradient = listOf(cfg.accent.primary, cfg.accent.secondary),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // 6. GLASS BOX 5: ROOT LAB & RECENT TWEAKS (Collapsible)
-        item {
-            GlassBox(
-                title = "Recent Tweaks & Access",
-                accent = GlassPalette.WarmAmber,
-                badge = dna.privilegeTier.badge,
-                collapsible = true,
-                initiallyExpanded = false
-            ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassPillButton("Check Root", onClick = onCheckRoot, modifier = Modifier.weight(1f))
-                    GlassPillButton("Open Root Lab", onClick = onOpenRootLab, gradient = listOf(cfg.accent.primary, GlassPalette.WarmAmber), modifier = Modifier.weight(1f))
-                }
-                if (recentTweaks.isEmpty()) {
-                    Text("No tweaks applied yet. Explore 24 controls or one-tap Presets.", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    recentTweaks.forEach { rec ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(rec.tweakName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            Text("${rec.previousValue} → ${rec.newValue}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (rec.succeeded) GlassPalette.StatusGood else GlassPalette.StatusDanger)
-                        }
-                    }
+                    GlassPillButton("All Hardware", onClick = { onOpenTab("settings") }, gradient = listOf(cfg.accent.primary, cfg.accent.secondary), modifier = Modifier.weight(1f))
                 }
             }
         }

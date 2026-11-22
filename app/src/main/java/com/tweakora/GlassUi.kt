@@ -1,6 +1,6 @@
 package com.tweakora
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -29,7 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,7 +47,6 @@ enum class GlassThemeMode(val label: String) {
     MIDNIGHT("Liquid Dark"), AMOLED("AMOLED"), LIGHT("Frosted Light")
 }
 
-// Calmer, eye-friendly pastel-neon accents (zero harsh eye strain)
 enum class GlassAccent(val label: String, val primary: Color, val secondary: Color, val glow: Color) {
     NEON_PURPLE("Soft Violet", Color(0xFF9F7AEA), Color(0xFF38BDF8), Color(0xFF818CF8)),
     CYBER_CYAN("Ocean Cyan", Color(0xFF22B8CF), Color(0xFF60A5FA), Color(0xFF9F7AEA)),
@@ -108,25 +110,38 @@ fun TweakoraGlassTheme(config: GlassThemeConfig = GlassThemeConfig(), content: @
     }
 }
 
+/**
+ * GPU-cached backdrop: allocates radial brushes once per layout size for zero scroll lag & low battery usage.
+ */
 @Composable
 fun GlassBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val cfg = LocalGlassConfig.current
-    val bgBrush = when (cfg.mode) {
-        GlassThemeMode.MIDNIGHT -> Brush.verticalGradient(listOf(Color(0xFF111524), Color(0xFF0A0C12), Color(0xFF07090E)))
-        GlassThemeMode.AMOLED -> Brush.verticalGradient(listOf(Color(0xFF05070B), Color.Black, Color.Black))
-        GlassThemeMode.LIGHT -> Brush.verticalGradient(listOf(Color(0xFFEAF0F9), Color(0xFFF4F7FC), Color(0xFFEAF1FA)))
-    }
-    // Subtle low-glare ambient orbs so text remains effortless to read
-    val orbStrength = when (cfg.mode) { GlassThemeMode.MIDNIGHT -> 0.55f; GlassThemeMode.AMOLED -> 0.25f; GlassThemeMode.LIGHT -> 0.30f }
+    val orbStrength = when (cfg.mode) { GlassThemeMode.MIDNIGHT -> 0.55f; GlassThemeMode.AMOLED -> 0.22f; GlassThemeMode.LIGHT -> 0.30f }
 
-    Box(modifier = modifier.fillMaxSize().background(bgBrush)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(Brush.radialGradient(listOf(cfg.accent.primary.copy(0.20f * orbStrength), Color.Transparent), Offset(size.width * 0.16f, size.height * 0.10f), size.width * 0.78f), size.width * 0.78f, Offset(size.width * 0.16f, size.height * 0.10f))
-            drawCircle(Brush.radialGradient(listOf(cfg.accent.secondary.copy(0.16f * orbStrength), Color.Transparent), Offset(size.width * 0.88f, size.height * 0.42f), size.width * 0.72f), size.width * 0.72f, Offset(size.width * 0.88f, size.height * 0.42f))
-            drawCircle(Brush.radialGradient(listOf(cfg.accent.glow.copy(0.14f * orbStrength), Color.Transparent), Offset(size.width * 0.22f, size.height * 0.84f), size.width * 0.65f), size.width * 0.65f, Offset(size.width * 0.22f, size.height * 0.84f))
-        }
-        content()
-    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val bgBrush = when (cfg.mode) {
+                    GlassThemeMode.MIDNIGHT -> Brush.verticalGradient(listOf(Color(0xFF111524), Color(0xFF0A0C12), Color(0xFF07090E)))
+                    GlassThemeMode.AMOLED -> Brush.verticalGradient(listOf(Color(0xFF05070B), Color.Black, Color.Black))
+                    GlassThemeMode.LIGHT -> Brush.verticalGradient(listOf(Color(0xFFEAF0F9), Color(0xFFF4F7FC), Color(0xFFEAF1FA)))
+                }
+                val c1 = Offset(size.width * 0.16f, size.height * 0.10f)
+                val c2 = Offset(size.width * 0.88f, size.height * 0.42f)
+                val c3 = Offset(size.width * 0.22f, size.height * 0.84f)
+                val b1 = Brush.radialGradient(listOf(cfg.accent.primary.copy(0.20f * orbStrength), Color.Transparent), c1, size.width * 0.78f)
+                val b2 = Brush.radialGradient(listOf(cfg.accent.secondary.copy(0.16f * orbStrength), Color.Transparent), c2, size.width * 0.72f)
+                val b3 = Brush.radialGradient(listOf(cfg.accent.glow.copy(0.14f * orbStrength), Color.Transparent), c3, size.width * 0.65f)
+                onDrawBehind {
+                    drawRect(bgBrush)
+                    drawCircle(b1, size.width * 0.78f, c1)
+                    drawCircle(b2, size.width * 0.72f, c2)
+                    drawCircle(b3, size.width * 0.65f, c3)
+                }
+            },
+        content = content
+    )
 }
 
 @Composable
@@ -142,11 +157,11 @@ fun GlassCard(
     val isLight = cfg.mode == GlassThemeMode.LIGHT
     val shape = RoundedCornerShape(cornerRadius)
     val accent = glowAccent ?: cfg.accent.primary
-    val fill = if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.84f), Color.White.copy(0.66f)))
-    else Brush.verticalGradient(listOf(Color(0xFF1A1E2E).copy(0.76f), Color(0xFF111420).copy(0.68f)))
+    val fill = if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.86f), Color.White.copy(0.70f)))
+    else Brush.verticalGradient(listOf(Color(0xFF1A1E2E).copy(0.78f), Color(0xFF111420).copy(0.70f)))
     val border = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.9f else 0.20f), accent.copy(0.14f), Color.White.copy(if (isLight) 0.4f else 0.08f)))
 
-    Box(modifier.fillMaxWidth().clip(shape).background(fill).background(tint.copy(if (isLight) 0.03f else 0.03f)).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
+    Box(modifier.fillMaxWidth().clip(shape).background(fill).background(tint.copy(0.03f)).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
         Surface(Modifier.fillMaxWidth(), shape = shape, color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface, border = BorderStroke(1.dp, border)) {
             Column(Modifier.padding(17.dp), content = content)
         }
@@ -154,7 +169,7 @@ fun GlassCard(
 }
 
 /**
- * Floating Liquid Glass Capsule Dock with an animated sliding frosted glass block.
+ * Pure GPU-accelerated sliding Liquid Glass Capsule Dock (uses graphicsLayer.translationX for 120fps motion).
  */
 @Composable
 fun LiquidGlassNavBar(
@@ -166,9 +181,10 @@ fun LiquidGlassNavBar(
     val isLight = LocalGlassConfig.current.mode == GlassThemeMode.LIGHT
     val capsule = RoundedCornerShape(50)
     val selectedIdx = items.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0)
+    val density = LocalDensity.current
 
-    val dockBg = if (isLight) Brush.verticalGradient(listOf(Color(0xDCFFFFFF), Color(0xC2EAF0FA)))
-    else Brush.verticalGradient(listOf(Color(0xC41E2232), Color(0xDB0D1019)))
+    val dockBg = if (isLight) Brush.verticalGradient(listOf(Color(0xE0FFFFFF), Color(0xC8EAF0FA)))
+    else Brush.verticalGradient(listOf(Color(0xC81E2232), Color(0xE00D1019)))
     val dockRim = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.38f), Color.White.copy(0.10f), Color.White.copy(if (isLight) 0.6f else 0.22f)))
 
     val sliderBg = if (isLight) Brush.verticalGradient(listOf(Color(0x260F172A), Color(0x140F172A)))
@@ -180,16 +196,16 @@ fun LiquidGlassNavBar(
             Surface(Modifier.fillMaxWidth(), shape = capsule, color = Color.Transparent, border = BorderStroke(1.2.dp, dockRim)) {
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(6.dp)) {
                     val slotWidth = maxWidth / items.size.coerceAtLeast(1)
-                    val slideOffset by animateDpAsState(
-                        targetValue = slotWidth * selectedIdx,
-                        animationSpec = spring(dampingRatio = 0.76f, stiffness = 360f),
-                        label = "navGlassSlider"
+                    val targetPx = with(density) { (slotWidth * selectedIdx).toPx() }
+                    val slidePx by animateFloatAsState(
+                        targetValue = targetPx,
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 460f),
+                        label = "gpuNavSlide"
                     )
 
-                    // Sliding Liquid Glass Block
                     Box(
                         modifier = Modifier
-                            .offset(x = slideOffset)
+                            .graphicsLayer { translationX = slidePx }
                             .width(slotWidth)
                             .height(54.dp)
                             .clip(capsule)
@@ -228,7 +244,7 @@ fun LiquidGlassNavBar(
 }
 
 /**
- * Segmented glass tabs with matching smooth sliding indicator pill.
+ * Pure GPU-accelerated sliding segmented glass tabs.
  */
 @Composable
 fun GlassSegmentedTabs(items: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
@@ -236,18 +252,20 @@ fun GlassSegmentedTabs(items: List<String>, selectedIndex: Int, onSelect: (Int) 
     val isLight = cfg.mode == GlassThemeMode.LIGHT
     val shape = RoundedCornerShape(50)
     val safeIdx = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+    val density = LocalDensity.current
 
     Surface(modifier.fillMaxWidth(), shape = shape, color = if (isLight) Color.White.copy(0.70f) else Color(0x88151926), border = BorderStroke(1.dp, Color.White.copy(if (isLight) 0.85f else 0.18f))) {
         BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
             val slotW = maxWidth / items.size.coerceAtLeast(1)
-            val slideX by animateDpAsState(
-                targetValue = slotW * safeIdx,
-                animationSpec = spring(dampingRatio = 0.80f, stiffness = 420f),
-                label = "segSlide"
+            val targetPx = with(density) { (slotW * safeIdx).toPx() }
+            val slidePx by animateFloatAsState(
+                targetValue = targetPx,
+                animationSpec = spring(dampingRatio = 0.84f, stiffness = 500f),
+                label = "gpuSegSlide"
             )
             Box(
                 Modifier
-                    .offset(x = slideX)
+                    .graphicsLayer { translationX = slidePx }
                     .width(slotW)
                     .height(36.dp)
                     .clip(shape)

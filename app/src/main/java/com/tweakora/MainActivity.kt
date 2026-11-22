@@ -21,26 +21,16 @@ import android.view.Display
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,7 +65,7 @@ enum class HealthStatus(val label: String) {
 
 enum class PerformanceProfile(val label: String, val animScale: String) {
     BALANCED("Balanced", "0.75"),
-    PERFORMANCE("Performance", "0.5"),
+    PERFORMANCE("Perf", "0.5"),
     BATTERY("Battery", "1.0"),
     GAMING("Gaming", "0.5")
 }
@@ -303,9 +293,7 @@ object SystemInspector {
         }
 }
 
-// ---------- ACTIVITY & GLASS NAVIGATION SHELL ----------
-
-private data class NavTab(val route: String, val label: String, val icon: ImageVector)
+// ---------- ACTIVITY & LIQUID GLASS SHELL ----------
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -322,7 +310,7 @@ class MainActivity : ComponentActivity() {
             var themeConfig by remember { mutableStateOf(AppPrefs.loadThemeConfig(ctx)) }
 
             TweakoraGlassTheme(config = themeConfig) {
-                TweakoraGlassShell(
+                TweakoraLiquidShell(
                     themeConfig = themeConfig,
                     onUpdateTheme = { newCfg ->
                         themeConfig = newCfg
@@ -335,7 +323,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TweakoraGlassShell(
+private fun TweakoraLiquidShell(
     themeConfig: GlassThemeConfig,
     onUpdateTheme: (GlassThemeConfig) -> Unit
 ) {
@@ -347,6 +335,7 @@ private fun TweakoraGlassShell(
     var ramHistory by remember { mutableStateOf(listOf<Float>()) }
     var tempHistory by remember { mutableStateOf(listOf<Float>()) }
     var isPaused by remember { mutableStateOf(false) }
+    var ruleLogs by remember { mutableStateOf(listOf<RuleEventLog>()) }
 
     LaunchedEffect(isPaused) {
         while (isActive) {
@@ -355,17 +344,21 @@ private fun TweakoraGlassShell(
                 dna = snap
                 ramHistory = (ramHistory + snap.ramFraction).takeLast(14)
                 tempHistory = (tempHistory + ((snap.batteryTempC - 20f) / 30f).coerceIn(0.05f, 1f)).takeLast(14)
+                val fired = SmartRulesEngine.evaluateLive(context, snap)
+                if (fired.isNotEmpty()) {
+                    ruleLogs = (fired + ruleLogs).take(20)
+                }
             }
             delay(2000L)
         }
     }
 
-    val tabs = listOf(
-        NavTab("home", "Home", Icons.Rounded.Dashboard),
-        NavTab("tweaks", "Tweaks", Icons.Rounded.Tune),
-        NavTab("gaming", "Gaming", Icons.Rounded.SportsEsports),
-        NavTab("monitor", "Monitor", Icons.Rounded.QueryStats),
-        NavTab("settings", "Tools", Icons.Rounded.Settings)
+    val navTabs = listOf(
+        Triple("home", "Home", Icons.Rounded.Dashboard),
+        Triple("tweaks", "Tweaks", Icons.Rounded.Tune),
+        Triple("gaming", "Gaming", Icons.Rounded.SportsEsports),
+        Triple("monitor", "Monitor", Icons.Rounded.QueryStats),
+        Triple("settings", "Tools", Icons.Rounded.Settings)
     )
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
@@ -379,54 +372,52 @@ private fun TweakoraGlassShell(
     }
 
     GlassBackdrop {
-        Scaffold(
-            containerColor = Color.Transparent,
-            bottomBar = {
-                if (currentRoute != "rootlab") {
-                    GlassBottomNavBar(
-                        tabs = tabs,
-                        currentRoute = currentRoute,
-                        onSelect = { goTab(it) }
-                    )
-                }
-            }
-        ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            // Full-bleed NavHost so cards glide visibly underneath the floating Liquid Glass dock
             NavHost(
                 navController = navController,
                 startDestination = "home",
-                modifier = Modifier.padding(padding)
+                modifier = Modifier.fillMaxSize()
             ) {
                 composable("home") {
                     GlassHomeDashboard(
                         dna = dna,
                         ramHistory = ramHistory,
                         tempHistory = tempHistory,
+                        latestRuleLog = ruleLogs.firstOrNull(),
                         onOpenTab = { goTab(it) },
                         onOpenRootLab = { navController.navigate("rootlab") },
+                        onOpenSmartRules = { navController.navigate("rules") },
                         onCheckRoot = {
                             scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
                         }
                     )
                 }
                 composable("tweaks") {
-                    TweaksAndTimeMachineScreen(
-                        deviceTier = dna?.privilegeTier ?: PrivilegeTier.STANDARD,
-                        onTierRefresh = {
-                            scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
-                        }
-                    )
+                    Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) {
+                        TweaksAndTimeMachineScreen(
+                            deviceTier = dna?.privilegeTier ?: PrivilegeTier.STANDARD,
+                            onTierRefresh = {
+                                scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
+                            }
+                        )
+                    }
                 }
                 composable("gaming") {
-                    GamingHubScreen(dna = dna)
+                    Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) {
+                        GamingHubScreen(dna = dna)
+                    }
                 }
                 composable("monitor") {
-                    MonitorHubScreen(
-                        dna = dna,
-                        ramHistory = ramHistory,
-                        tempHistory = tempHistory,
-                        isMonitoringPaused = isPaused,
-                        onToggleMonitoring = { isPaused = !isPaused }
-                    )
+                    Box(Modifier.fillMaxSize().padding(bottom = 86.dp)) {
+                        MonitorHubScreen(
+                            dna = dna,
+                            ramHistory = ramHistory,
+                            tempHistory = tempHistory,
+                            isMonitoringPaused = isPaused,
+                            onToggleMonitoring = { isPaused = !isPaused }
+                        )
+                    }
                 }
                 composable("settings") {
                     SettingsAndToolsScreen(
@@ -434,6 +425,7 @@ private fun TweakoraGlassShell(
                         themeConfig = themeConfig,
                         onUpdateTheme = onUpdateTheme,
                         onOpenRootLab = { navController.navigate("rootlab") },
+                        onOpenSmartRules = { navController.navigate("rules") },
                         onRefreshDna = {
                             scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
                         }
@@ -448,96 +440,39 @@ private fun TweakoraGlassShell(
                         }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GlassBottomNavBar(
-    tabs: List<NavTab>,
-    currentRoute: String?,
-    onSelect: (String) -> Unit
-) {
-    val cfg = LocalGlassConfig.current
-    val isLight = cfg.mode == GlassThemeMode.LIGHT
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-    ) {
-        val shape = RoundedCornerShape(28.dp)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = shape,
-            color = if (isLight) Color(0xCCFFFFFF) else Color(0xBB110D24),
-            border = BorderStroke(
-                1.dp,
-                Brush.horizontalGradient(
-                    listOf(
-                        Color.White.copy(alpha = if (isLight) 0.9f else 0.24f),
-                        cfg.accent.primary.copy(alpha = 0.45f),
-                        cfg.accent.secondary.copy(alpha = 0.38f)
+                composable("rules") {
+                    SmartRulesAndSimScreen(
+                        dna = dna,
+                        recentLogs = ruleLogs,
+                        onBack = { navController.popBackStack() }
                     )
-                )
-            )
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    Column(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                if (selected) {
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            cfg.accent.primary.copy(alpha = 0.30f),
-                                            cfg.accent.secondary.copy(alpha = 0.26f)
-                                        )
-                                    )
-                                } else {
-                                    Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
-                                }
-                            )
-                            .clickable { onSelect(tab.route) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            tab.icon,
-                            contentDescription = tab.label,
-                            tint = if (selected) cfg.accent.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(21.dp)
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            tab.label,
-                            fontSize = 10.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
+
+            // Floating Liquid Glass Capsule Bar
+            if (currentRoute != "rootlab" && currentRoute != "rules") {
+                LiquidGlassNavBar(
+                    items = navTabs,
+                    currentRoute = currentRoute,
+                    onSelect = { goTab(it) },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
         }
     }
 }
 
-// ---------- TRANSPARENT GLASS HOME DASHBOARD ----------
+// ---------- LIQUID GLASS HOME DASHBOARD ----------
 
 @Composable
 private fun GlassHomeDashboard(
     dna: DeviceDna?,
     ramHistory: List<Float>,
     tempHistory: List<Float>,
+    latestRuleLog: RuleEventLog?,
     onOpenTab: (String) -> Unit,
     onOpenRootLab: () -> Unit,
+    onOpenSmartRules: () -> Unit,
     onCheckRoot: () -> Unit
 ) {
     val context = LocalContext.current
@@ -573,10 +508,10 @@ private fun GlassHomeDashboard(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Header
+        // 1. Crisp High-Contrast Header
         item {
             Row(
                 Modifier.fillMaxWidth(),
@@ -585,18 +520,34 @@ private fun GlassHomeDashboard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("TWEAKORA", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                    Text("${dna.manufacturer} ${dna.model}", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${dna.manufacturer} ${dna.model}",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                     Text(
                         "Android ${dna.androidVersion} (API ${dna.sdkInt}) • ${dna.buildId}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
+                Spacer(Modifier.width(8.dp))
                 GlassStatusPill(dna.privilegeTier.badge, tierColor)
             }
         }
 
-        // 2. Hero Glass Ring Card
+        // Live Smart Rule alert if triggered
+        latestRuleLog?.let { log ->
+            item {
+                GlassCard(tint = GlassPalette.WarmAmber, glowAccent = GlassPalette.WarmAmber, onClick = onOpenSmartRules) {
+                    Text("SMART RULE ACTIVE: ${log.ruleName.uppercase()}", style = MaterialTheme.typography.labelMedium, color = GlassPalette.WarmAmber)
+                    Spacer(Modifier.height(2.dp))
+                    Text(log.detail, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+
+        // 2. Hero Liquid Glass Ring Card
         item {
             GlassCard(tint = cfg.accent.primary, glowAccent = cfg.accent.primary) {
                 Row(
@@ -610,76 +561,71 @@ private fun GlassHomeDashboard(
                         centerSubtitle = dna.healthStatus.label,
                         pillLabel = "${dna.batteryPercent}% BAT"
                     )
-                    Spacer(Modifier.width(14.dp))
+                    Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         GlassStatusPill(dna.healthStatus.label.uppercase(), healthColor)
                         Text(
                             text = String.format(Locale.US, "%.1f°C • %s", dna.batteryTempC, dna.thermalStatus),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "${if (dna.isCharging) "Charging" else "On Battery"} • ${dna.batteryHealth} (${dna.batteryVoltageMv} mV)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MaterialTheme.typography.bodySmall
                         )
                         Text(
                             text = "Profile: ${activeProfile.label}",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
                             color = cfg.accent.secondary
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(PerformanceProfile.entries) { p ->
-                        FilterChip(
-                            selected = activeProfile == p,
-                            onClick = {
-                                activeProfile = p
-                                if (dna.privilegeTier != PrivilegeTier.STANDARD) {
-                                    scope.launch {
-                                        val anim = TweakEngine.catalog.first { it.id == "anim_transition" }
-                                        val rec = TweakEngine.applyTweak(context, anim, p.animScale)
-                                        profileFeedback = if (rec.succeeded) {
-                                            "${p.label} profile active (Transition scale ${p.animScale}x applied)."
-                                        } else {
-                                            "${p.label} profile selected."
-                                        }
-                                    }
+                Spacer(Modifier.height(14.dp))
+                GlassSegmentedTabs(
+                    items = PerformanceProfile.entries.map { it.label },
+                    selectedIndex = PerformanceProfile.entries.indexOf(activeProfile),
+                    onSelect = { idx ->
+                        val p = PerformanceProfile.entries[idx]
+                        activeProfile = p
+                        if (dna.privilegeTier != PrivilegeTier.STANDARD) {
+                            scope.launch {
+                                val anim = TweakEngine.catalog.first { it.id == "anim_transition" }
+                                val rec = TweakEngine.applyTweak(context, anim, p.animScale)
+                                profileFeedback = if (rec.succeeded) {
+                                    "${p.label} profile active (Transition scale ${p.animScale}x)."
                                 } else {
-                                    profileFeedback = "${p.label} profile selected. Enable Shizuku/Root in Tools to auto-apply system scales."
+                                    "${p.label} profile selected."
                                 }
-                            },
-                            label = { Text(p.label, fontSize = 11.sp) }
-                        )
+                            }
+                        } else {
+                            profileFeedback = "${p.label} profile selected. Grant Shizuku in Tools to auto-apply."
+                        }
                     }
-                }
+                )
                 profileFeedback?.let { msg ->
-                    Spacer(Modifier.height(6.dp))
-                    Text(msg, fontSize = 11.sp, color = cfg.accent.secondary)
+                    Spacer(Modifier.height(8.dp))
+                    Text(msg, fontSize = 12.5.sp, color = cfg.accent.secondary, fontWeight = FontWeight.Medium)
                 }
             }
         }
 
-        // 3. Gradient Action Banner
+        // 3. Action Banner
         item {
             GlassActionBanner(
                 title = "Full Device Scan & Tweakora AI",
-                subtitle = "Check bottlenecks, hardware DNA, storage & privacy score",
+                subtitle = "Bottlenecks, Hardware DNA, Apps & Developer Info",
                 icon = Icons.Rounded.AutoAwesome,
                 onClick = { onOpenTab("settings") }
             )
         }
 
-        // 4. Translucent Glass Tool Grid (All Working)
+        // 4. Clean 2x2 Control Centre Grid (Zero Text Truncation)
         item {
             Text("CONTROL CENTRE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GlassToolTile(
                     title = "Tweaks",
                     subtitle = "14 controls",
@@ -690,18 +636,29 @@ private fun GlassHomeDashboard(
                 )
                 GlassToolTile(
                     title = "Gaming",
-                    subtitle = "Autopsy + Ping",
+                    subtitle = "Autopsy & Ping",
                     icon = Icons.Rounded.SportsEsports,
                     accent = cfg.accent.secondary,
                     onClick = { onOpenTab("gaming") },
                     modifier = Modifier.weight(1f)
                 )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GlassToolTile(
-                    title = "Bench & Labs",
-                    subtitle = "CPU + Thermal",
+                    title = "Perf Labs",
+                    subtitle = "Bench & Temp",
                     icon = Icons.Rounded.Speed,
                     accent = GlassPalette.WarmAmber,
                     onClick = { onOpenTab("monitor") },
+                    modifier = Modifier.weight(1f)
+                )
+                GlassToolTile(
+                    title = "Smart Rules",
+                    subtitle = "Auto & Sim",
+                    icon = Icons.Rounded.Bolt,
+                    accent = GlassPalette.NeonMagenta,
+                    onClick = onOpenSmartRules,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -710,33 +667,21 @@ private fun GlassHomeDashboard(
         // 5. Live Glowing Wave Telemetry Card
         item {
             GlassCard(glowAccent = cfg.accent.secondary) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("LIVE TELEMETRY", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(
-                            selected = chartTab == 0,
-                            onClick = { chartTab = 0 },
-                            label = { Text("RAM ${(dna.ramFraction * 100).toInt()}%", fontSize = 10.sp) }
-                        )
-                        FilterChip(
-                            selected = chartTab == 1,
-                            onClick = { chartTab = 1 },
-                            label = { Text(String.format(Locale.US, "%.1f°C", dna.batteryTempC), fontSize = 10.sp) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
+                Text("LIVE TELEMETRY", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
+                Spacer(Modifier.height(10.dp))
+                GlassSegmentedTabs(
+                    items = listOf("RAM ${(dna.ramFraction * 100).toInt()}%", String.format(Locale.US, "Thermal %.1f°C", dna.batteryTempC)),
+                    selectedIndex = chartTab,
+                    onSelect = { chartTab = it }
+                )
+                Spacer(Modifier.height(10.dp))
                 GlassWaveChart(
                     values = if (chartTab == 0) ramHistory else tempHistory,
                     lineColor = if (chartTab == 0) cfg.accent.secondary else GlassPalette.NeonMagenta
                 )
+                Spacer(Modifier.height(12.dp))
+                GlassGaugeRow("RAM Usage", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, cfg.accent.primary)
                 Spacer(Modifier.height(10.dp))
-                GlassGaugeRow("RAM", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, cfg.accent.primary)
-                Spacer(Modifier.height(8.dp))
                 GlassGaugeRow(
                     "Storage",
                     String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", dna.usedStorageGb, dna.totalStorageGb, dna.freeStorageGb),
@@ -750,7 +695,7 @@ private fun GlassHomeDashboard(
         item {
             GlassCard(onClick = { onOpenTab("settings") }) {
                 Text("SYSTEM DNA", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 GlassSpecRow("Processor", "${dna.socName} (${dna.cpuCores} Cores)")
                 GlassSpecRow("Live Clock", dna.peakLiveClockMhz?.let { "$it MHz peak" } ?: "SELinux Protected")
                 GlassSpecRow("GPU", dna.gpuRenderer)
@@ -770,30 +715,29 @@ private fun GlassHomeDashboard(
                     Text("RECENT TWEAKS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row {
                         TextButton(onClick = onCheckRoot) {
-                            Text("Check Root", fontSize = 11.5.sp, color = cfg.accent.secondary)
+                            Text("Check Root", fontSize = 13.sp, color = cfg.accent.secondary)
                         }
                         TextButton(onClick = onOpenRootLab) {
-                            Text("Root Lab", fontSize = 11.5.sp, color = GlassPalette.WarmAmber)
+                            Text("Root Lab", fontSize = 13.sp, color = GlassPalette.WarmAmber)
                         }
                     }
                 }
                 if (recentTweaks.isEmpty()) {
                     Text(
-                        "No tweaks applied yet. Open Tweaks to run system controls or capture a Time Machine snapshot.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "No tweaks applied yet. Open Tweaks to run controls or save a System Time Machine snapshot.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 } else {
                     recentTweaks.forEach { rec ->
                         Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(rec.tweakName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                            Text(rec.tweakName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             Text(
                                 "${rec.previousValue} → ${rec.newValue}",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = if (rec.succeeded) GlassPalette.StatusGood else GlassPalette.StatusDanger
                             )
                         }

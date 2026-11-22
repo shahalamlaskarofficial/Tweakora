@@ -1,7 +1,7 @@
 package com.tweakora
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -97,10 +98,10 @@ fun TweakoraGlassTheme(config: GlassThemeConfig = GlassThemeConfig(), content: @
     }
 
     val typo = Typography(
-        headlineSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 23.sp, lineHeight = 29.sp, color = primaryText),
-        titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, color = primaryText),
+        headlineSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp, color = primaryText),
+        titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 15.5.sp, lineHeight = 21.sp, color = primaryText),
         bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp, color = primaryText),
-        bodySmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 19.sp, color = mutedText),
+        bodySmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.5.sp, color = mutedText),
         labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, letterSpacing = 0.9.sp)
     )
 
@@ -112,14 +113,14 @@ fun TweakoraGlassTheme(config: GlassThemeConfig = GlassThemeConfig(), content: @
 @Composable
 fun GlassBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val cfg = LocalGlassConfig.current
-    val orbStrength = when (cfg.mode) { GlassThemeMode.MIDNIGHT -> 0.55f; GlassThemeMode.AMOLED -> 0.22f; GlassThemeMode.LIGHT -> 0.30f }
+    val orbStrength = when (cfg.mode) { GlassThemeMode.MIDNIGHT -> 0.50f; GlassThemeMode.AMOLED -> 0.20f; GlassThemeMode.LIGHT -> 0.28f }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .drawWithCache {
                 val bgBrush = when (cfg.mode) {
-                    GlassThemeMode.MIDNIGHT -> Brush.verticalGradient(listOf(Color(0xFF111524), Color(0xFF0A0C12), Color(0xFF07090E)))
+                    GlassThemeMode.MIDNIGHT -> Brush.verticalGradient(listOf(Color(0xFF101422), Color(0xFF0A0C12), Color(0xFF07090E)))
                     GlassThemeMode.AMOLED -> Brush.verticalGradient(listOf(Color(0xFF05070B), Color.Black, Color.Black))
                     GlassThemeMode.LIGHT -> Brush.verticalGradient(listOf(Color(0xFFEAF0F9), Color(0xFFF4F7FC), Color(0xFFEAF1FA)))
                 }
@@ -145,7 +146,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     glowAccent: Color? = null,
-    cornerRadius: Dp = 22.dp,
+    cornerRadius: Dp = 20.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -153,21 +154,27 @@ fun GlassCard(
     val isLight = cfg.mode == GlassThemeMode.LIGHT
     val shape = RoundedCornerShape(cornerRadius)
     val accent = glowAccent ?: cfg.accent.primary
-    val fill = if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.86f), Color.White.copy(0.70f)))
-    else Brush.verticalGradient(listOf(Color(0xFF1A1E2E).copy(0.78f), Color(0xFF111420).copy(0.70f)))
-    val border = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.9f else 0.20f), accent.copy(0.14f), Color.White.copy(if (isLight) 0.4f else 0.08f)))
-
-    Box(modifier.fillMaxWidth().clip(shape).background(fill).background(tint.copy(0.03f)).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
-        Surface(Modifier.fillMaxWidth(), shape = shape, color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface, border = BorderStroke(1.dp, border)) {
-            Column(Modifier.padding(17.dp), content = content)
-        }
+    val fill = remember(isLight) {
+        if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.86f), Color.White.copy(0.72f)))
+        else Brush.verticalGradient(listOf(Color(0xFF1A1E2E).copy(0.78f), Color(0xFF111420).copy(0.70f)))
     }
+    val border = remember(isLight, accent) {
+        Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.9f else 0.18f), accent.copy(0.14f), Color.White.copy(if (isLight) 0.4f else 0.08f)))
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(fill)
+            .background(tint.copy(0.03f))
+            .border(1.dp, border, shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(16.dp),
+        content = content
+    )
 }
 
-/**
- * Organized Glass Box Container: groups related telemetry sources, tools, or settings
- * cleanly inside one frosted glass box with a luminous header bar and optional collapse.
- */
 @Composable
 fun GlassBox(
     title: String,
@@ -180,72 +187,69 @@ fun GlassBox(
 ) {
     val cfg = LocalGlassConfig.current
     val isLight = cfg.mode == GlassThemeMode.LIGHT
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(22.dp)
     var expanded by remember(title) { mutableStateOf(initiallyExpanded) }
 
-    val boxBg = if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.88f), Color.White.copy(0.72f)))
-    else Brush.verticalGradient(listOf(Color(0xFF1C2133).copy(0.74f), Color(0xFF10131E).copy(0.68f)))
-    val headerBg = if (isLight) accent.copy(0.08f) else Color.White.copy(0.04f)
-    val boxBorder = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.26f), accent.copy(0.22f), Color.White.copy(0.09f)))
+    val boxBg = remember(isLight) {
+        if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.88f), Color.White.copy(0.74f)))
+        else Brush.verticalGradient(listOf(Color(0xFF1B2030).copy(0.76f), Color(0xFF10131E).copy(0.70f)))
+    }
+    val boxBorder = remember(isLight, accent) {
+        Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.24f), accent.copy(0.20f), Color.White.copy(0.08f)))
+    }
+    val headerBg = if (isLight) accent.copy(0.07f) else Color.White.copy(0.035f)
 
-    Box(modifier.fillMaxWidth().clip(shape).background(boxBg)) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = shape,
-            color = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = BorderStroke(1.dp, boxBorder)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(boxBg)
+            .border(1.dp, boxBorder, shape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(headerBg)
+                .then(if (collapsible) Modifier.clickable { expanded = !expanded } else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(headerBg)
-                        .then(if (collapsible) Modifier.clickable { expanded = !expanded } else Modifier)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
-                        Spacer(Modifier.width(9.dp))
-                        Text(
-                            text = title.uppercase(),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        badge?.let { GlassStatusPill(it, accent) }
-                        if (collapsible) {
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-                HorizontalDivider(color = Color.White.copy(if (isLight) 0.35f else 0.09f), thickness = 1.dp)
-                AnimatedVisibility(visible = !collapsible || expanded) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(15.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        content = content
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    text = title.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                badge?.let { GlassStatusPill(it, accent) }
+                if (collapsible) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
+        HorizontalDivider(color = Color.White.copy(if (isLight) 0.35f else 0.08f), thickness = 1.dp)
+        AnimatedVisibility(visible = !collapsible || expanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(15.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
+            )
+        }
     }
 }
 
-/**
- * Compact inner frosted tile designed to sit neatly inside a GlassBox grid.
- */
 @Composable
 fun GlassBoxTile(
     title: String,
@@ -260,14 +264,14 @@ fun GlassBoxTile(
     Row(
         modifier = modifier
             .clip(shape)
-            .background(if (isLight) accent.copy(0.08f) else Color.White.copy(0.055f))
-            .border(1.dp, if (isLight) accent.copy(0.20f) else Color.White.copy(0.11f), shape)
+            .background(if (isLight) accent.copy(0.08f) else Color.White.copy(0.05f))
+            .border(1.dp, if (isLight) accent.copy(0.18f) else Color.White.copy(0.10f), shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(accent.copy(0.20f)),
+            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(accent.copy(0.18f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(19.dp))
@@ -280,6 +284,39 @@ fun GlassBoxTile(
     }
 }
 
+/**
+ * Clean stat cell for 2x2 Live Vitals matrices inside a GlassBox.
+ */
+@Composable
+fun GlassStatCell(
+    label: String,
+    value: String,
+    detail: String,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isLight = LocalGlassConfig.current.mode == GlassThemeMode.LIGHT
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(if (isLight) accent.copy(0.07f) else Color.White.copy(0.045f))
+            .border(1.dp, if (isLight) accent.copy(0.18f) else Color.White.copy(0.09f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(label.uppercase(), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = accent, letterSpacing = 0.7.sp)
+        Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        Text(detail, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * Zero-Recomposition 120fps Sliding Liquid Glass Dock:
+ * Reads Animatable.value ONLY inside graphicsLayer so the UI thread never recomposes during slides.
+ */
 @Composable
 fun LiquidGlassNavBar(
     items: List<Triple<String, String, ImageVector>>,
@@ -291,60 +328,78 @@ fun LiquidGlassNavBar(
     val capsule = RoundedCornerShape(50)
     val selectedIdx = items.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0)
     val density = LocalDensity.current
+    val count = items.size.coerceAtLeast(1)
 
-    val dockBg = if (isLight) Brush.verticalGradient(listOf(Color(0xE0FFFFFF), Color(0xC8EAF0FA)))
-    else Brush.verticalGradient(listOf(Color(0xC81E2232), Color(0xE00D1019)))
-    val dockRim = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.38f), Color.White.copy(0.10f), Color.White.copy(if (isLight) 0.6f else 0.22f)))
+    var innerWidthPx by remember { mutableIntStateOf(0) }
+    val animIndex = remember { Animatable(selectedIdx.toFloat()) }
 
-    val sliderBg = if (isLight) Brush.verticalGradient(listOf(Color(0x260F172A), Color(0x140F172A)))
-    else Brush.verticalGradient(listOf(Color(0x3DFFFFFF), Color(0x1CFFFFFF)))
-    val sliderRim = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.9f else 0.55f), Color.White.copy(0.10f)))
+    LaunchedEffect(selectedIdx) {
+        animIndex.animateTo(
+            targetValue = selectedIdx.toFloat(),
+            animationSpec = spring(dampingRatio = 0.80f, stiffness = 520f)
+        )
+    }
+
+    val dockBg = remember(isLight) {
+        if (isLight) Brush.verticalGradient(listOf(Color(0xE6FFFFFF), Color(0xD0EAF0FA)))
+        else Brush.verticalGradient(listOf(Color(0xD41E2232), Color(0xEB0C0F18)))
+    }
+    val dockRim = remember(isLight) {
+        Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.36f), Color.White.copy(0.10f), Color.White.copy(if (isLight) 0.6f else 0.22f)))
+    }
+    val sliderBg = remember(isLight) {
+        if (isLight) Brush.verticalGradient(listOf(Color(0x220F172A), Color(0x120F172A)))
+        else Brush.verticalGradient(listOf(Color(0x3BFFFFFF), Color(0x18FFFFFF)))
+    }
+    val sliderRim = remember(isLight) {
+        Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.85f else 0.52f), Color.White.copy(0.08f)))
+    }
 
     Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Box(Modifier.fillMaxWidth().clip(capsule).background(dockBg)) {
-            Surface(Modifier.fillMaxWidth(), shape = capsule, color = Color.Transparent, border = BorderStroke(1.2.dp, dockRim)) {
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(6.dp)) {
-                    val slotWidth = maxWidth / items.size.coerceAtLeast(1)
-                    val targetPx = with(density) { (slotWidth * selectedIdx).toPx() }
-                    val slidePx by animateFloatAsState(
-                        targetValue = targetPx,
-                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 460f),
-                        label = "gpuNavSlide"
-                    )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(capsule)
+                .background(dockBg)
+                .border(1.2.dp, dockRim, capsule)
+                .padding(6.dp)
+                .onSizeChanged { innerWidthPx = it.width }
+        ) {
+            if (innerWidthPx > 0) {
+                val slotWidthPx = innerWidthPx.toFloat() / count
+                val slotWidthDp = with(density) { slotWidthPx.toDp() }
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer { translationX = animIndex.value * slotWidthPx }
+                        .width(slotWidthDp)
+                        .height(54.dp)
+                        .clip(capsule)
+                        .background(sliderBg)
+                        .border(1.dp, sliderRim, capsule)
+                )
+            }
 
-                    Box(
+            Row(Modifier.fillMaxWidth().height(54.dp), verticalAlignment = Alignment.CenterVertically) {
+                items.forEach { (route, label, icon) ->
+                    val selected = currentRoute == route
+                    val itemTint = when {
+                        selected && isLight -> Color(0xFF0F172A)
+                        selected -> Color.White
+                        isLight -> Color(0xFF64748B)
+                        else -> Color(0xFF9AA6BE)
+                    }
+                    val interaction = remember { MutableInteractionSource() }
+                    Column(
                         modifier = Modifier
-                            .graphicsLayer { translationX = slidePx }
-                            .width(slotWidth)
-                            .height(54.dp)
-                            .clip(capsule)
-                            .background(sliderBg)
-                            .border(1.dp, sliderRim, capsule)
-                    )
-
-                    Row(Modifier.fillMaxWidth().height(54.dp), verticalAlignment = Alignment.CenterVertically) {
-                        items.forEach { (route, label, icon) ->
-                            val selected = currentRoute == route
-                            val itemTint = when {
-                                selected && isLight -> Color(0xFF0F172A)
-                                selected -> Color.White
-                                isLight -> Color(0xFF64748B)
-                                else -> Color(0xFF9AA6BE)
-                            }
-                            val interaction = remember { MutableInteractionSource() }
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clickable(interactionSource = interaction, indication = null) { onSelect(route) },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(icon, contentDescription = label, tint = itemTint, modifier = Modifier.size(21.dp))
-                                Spacer(Modifier.height(2.dp))
-                                Text(label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = itemTint, maxLines = 1)
-                            }
-                        }
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(interactionSource = interaction, indication = null) { onSelect(route) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(icon, contentDescription = label, tint = itemTint, modifier = Modifier.size(21.dp))
+                        Spacer(Modifier.height(2.dp))
+                        Text(label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = itemTint, maxLines = 1)
                     }
                 }
             }
@@ -352,41 +407,62 @@ fun LiquidGlassNavBar(
     }
 }
 
+/**
+ * Zero-Recomposition 120fps Sliding Segmented Tabs.
+ */
 @Composable
 fun GlassSegmentedTabs(items: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val cfg = LocalGlassConfig.current
     val isLight = cfg.mode == GlassThemeMode.LIGHT
     val shape = RoundedCornerShape(50)
-    val safeIdx = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+    val count = items.size.coerceAtLeast(1)
+    val safeIdx = selectedIndex.coerceIn(0, count - 1)
     val density = LocalDensity.current
 
-    Surface(modifier.fillMaxWidth(), shape = shape, color = if (isLight) Color.White.copy(0.70f) else Color(0x88151926), border = BorderStroke(1.dp, Color.White.copy(if (isLight) 0.85f else 0.18f))) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
-            val slotW = maxWidth / items.size.coerceAtLeast(1)
-            val targetPx = with(density) { (slotW * safeIdx).toPx() }
-            val slidePx by animateFloatAsState(
-                targetValue = targetPx,
-                animationSpec = spring(dampingRatio = 0.84f, stiffness = 500f),
-                label = "gpuSegSlide"
-            )
+    var innerWidthPx by remember { mutableIntStateOf(0) }
+    val animIndex = remember { Animatable(safeIdx.toFloat()) }
+
+    LaunchedEffect(safeIdx) {
+        animIndex.animateTo(
+            targetValue = safeIdx.toFloat(),
+            animationSpec = spring(dampingRatio = 0.84f, stiffness = 560f)
+        )
+    }
+
+    val pillBrush = remember(cfg.accent) {
+        Brush.horizontalGradient(listOf(cfg.accent.primary.copy(0.90f), cfg.accent.secondary.copy(0.88f)))
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (isLight) Color.White.copy(0.72f) else Color(0x88141825))
+            .border(1.dp, Color.White.copy(if (isLight) 0.85f else 0.16f), shape)
+            .padding(4.dp)
+            .onSizeChanged { innerWidthPx = it.width }
+    ) {
+        if (innerWidthPx > 0) {
+            val slotPx = innerWidthPx.toFloat() / count
+            val slotDp = with(density) { slotPx.toDp() }
             Box(
                 Modifier
-                    .graphicsLayer { translationX = slidePx }
-                    .width(slotW)
+                    .graphicsLayer { translationX = animIndex.value * slotPx }
+                    .width(slotDp)
                     .height(36.dp)
                     .clip(shape)
-                    .background(Brush.horizontalGradient(listOf(cfg.accent.primary.copy(0.90f), cfg.accent.secondary.copy(0.88f))))
+                    .background(pillBrush)
             )
-            Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
-                items.forEachIndexed { idx, label ->
-                    val sel = idx == safeIdx
-                    val interaction = remember { MutableInteractionSource() }
-                    Box(
-                        Modifier.weight(1f).fillMaxHeight().clickable(interactionSource = interaction, indication = null) { onSelect(idx) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(label, fontSize = 12.5.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, color = if (sel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
+        }
+        Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+            items.forEachIndexed { idx, label ->
+                val sel = idx == safeIdx
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().clickable(interactionSource = interaction, indication = null) { onSelect(idx) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, fontSize = 12.5.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, color = if (sel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -394,7 +470,7 @@ fun GlassSegmentedTabs(items: List<String>, selectedIndex: Int, onSelect: (Int) 
 }
 
 @Composable
-fun GlassRingGauge(progress: Float, centerTitle: String, centerSubtitle: String, pillLabel: String, modifier: Modifier = Modifier, size: Dp = 132.dp) {
+fun GlassRingGauge(progress: Float, centerTitle: String, centerSubtitle: String, pillLabel: String, modifier: Modifier = Modifier, size: Dp = 128.dp) {
     val cfg = LocalGlassConfig.current
     val clamped = progress.coerceIn(0f, 1f)
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
@@ -412,11 +488,11 @@ fun GlassRingGauge(progress: Float, centerTitle: String, centerSubtitle: String,
             drawCircle(Color.White, 3.dp.toPx(), pt)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(centerTitle, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text(centerSubtitle, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(centerTitle, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text(centerSubtitle, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Box(Modifier.align(Alignment.BottomCenter).clip(RoundedCornerShape(50)).background(Brush.horizontalGradient(listOf(cfg.accent.primary, cfg.accent.secondary))).padding(horizontal = 11.dp, vertical = 3.dp)) {
-            Text(pillLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Box(Modifier.align(Alignment.BottomCenter).clip(RoundedCornerShape(50)).background(Brush.horizontalGradient(listOf(cfg.accent.primary, cfg.accent.secondary))).padding(horizontal = 10.dp, vertical = 3.dp)) {
+            Text(pillLabel, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
 }
@@ -425,42 +501,36 @@ fun GlassRingGauge(progress: Float, centerTitle: String, centerSubtitle: String,
 fun GlassActionBanner(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cfg = LocalGlassConfig.current
     val shape = RoundedCornerShape(20.dp)
-    Box(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(cfg.accent.primary.copy(0.32f), cfg.accent.secondary.copy(0.24f)))).clickable(onClick = onClick)) {
-        Surface(Modifier.fillMaxWidth(), shape = shape, color = Color.Transparent, border = BorderStroke(1.dp, Color.White.copy(0.22f))) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).clip(CircleShape).background(Color.White.copy(0.14f)), contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text(subtitle, fontSize = 13.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = cfg.accent.secondary)
-            }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Brush.horizontalGradient(listOf(cfg.accent.primary.copy(0.30f), cfg.accent.secondary.copy(0.22f))))
+            .border(1.dp, Color.White.copy(0.20f), shape)
+            .clickable(onClick = onClick)
+            .padding(15.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(0.14f)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(21.dp))
         }
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(subtitle, fontSize = 12.5.sp, lineHeight = 17.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = cfg.accent.secondary)
     }
 }
 
 @Composable
 fun GlassToolTile(title: String, subtitle: String, icon: ImageVector, accent: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    GlassCard(modifier = modifier, tint = accent, glowAccent = accent, cornerRadius = 20.dp, onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(0.18f)), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
+    GlassBoxTile(title, subtitle, icon, accent, onClick, modifier)
 }
 
 @Composable
 fun GlassWaveChart(values: List<Float>, lineColor: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxWidth().height(94.dp)) {
+    Canvas(modifier.fillMaxWidth().height(90.dp)) {
         val pts = if (values.size >= 2) values else listOf(0.35f, 0.42f, 0.39f, 0.48f)
         val padY = 10.dp.toPx()
         for (i in 1..4) drawLine(Color.White.copy(0.08f), Offset(size.width * (i / 5f), 0f), Offset(size.width * (i / 5f), size.height), 1.dp.toPx())
@@ -476,15 +546,15 @@ fun GlassWaveChart(values: List<Float>, lineColor: Color, modifier: Modifier = M
         val fill = Path().apply { addPath(line); lineTo(coords.last().x, size.height); lineTo(coords.first().x, size.height); close() }
         drawPath(fill, Brush.verticalGradient(listOf(lineColor.copy(0.24f), Color.Transparent)))
         drawPath(line, lineColor, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
-        drawCircle(lineColor.copy(0.35f), 6.5.dp.toPx(), coords.last())
+        drawCircle(lineColor.copy(0.35f), 6.dp.toPx(), coords.last())
         drawCircle(Color.White, 3.dp.toPx(), coords.last())
     }
 }
 
 @Composable
 fun GlassStatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(50)).background(color.copy(0.18f)).padding(horizontal = 11.dp, vertical = 4.dp)) {
-        Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
+    Box(modifier.clip(RoundedCornerShape(50)).background(color.copy(0.18f)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+        Text(text, color = color, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
     }
 }
 

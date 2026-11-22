@@ -1,5 +1,6 @@
 package com.tweakora
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
@@ -13,12 +14,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -110,9 +109,6 @@ fun TweakoraGlassTheme(config: GlassThemeConfig = GlassThemeConfig(), content: @
     }
 }
 
-/**
- * GPU-cached backdrop: allocates radial brushes once per layout size for zero scroll lag & low battery usage.
- */
 @Composable
 fun GlassBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val cfg = LocalGlassConfig.current
@@ -169,8 +165,121 @@ fun GlassCard(
 }
 
 /**
- * Pure GPU-accelerated sliding Liquid Glass Capsule Dock (uses graphicsLayer.translationX for 120fps motion).
+ * Organized Glass Box Container: groups related telemetry sources, tools, or settings
+ * cleanly inside one frosted glass box with a luminous header bar and optional collapse.
  */
+@Composable
+fun GlassBox(
+    title: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    badge: String? = null,
+    collapsible: Boolean = false,
+    initiallyExpanded: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cfg = LocalGlassConfig.current
+    val isLight = cfg.mode == GlassThemeMode.LIGHT
+    val shape = RoundedCornerShape(24.dp)
+    var expanded by remember(title) { mutableStateOf(initiallyExpanded) }
+
+    val boxBg = if (isLight) Brush.verticalGradient(listOf(Color.White.copy(0.88f), Color.White.copy(0.72f)))
+    else Brush.verticalGradient(listOf(Color(0xFF1C2133).copy(0.74f), Color(0xFF10131E).copy(0.68f)))
+    val headerBg = if (isLight) accent.copy(0.08f) else Color.White.copy(0.04f)
+    val boxBorder = Brush.verticalGradient(listOf(Color.White.copy(if (isLight) 0.95f else 0.26f), accent.copy(0.22f), Color.White.copy(0.09f)))
+
+    Box(modifier.fillMaxWidth().clip(shape).background(boxBg)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = shape,
+            color = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(1.dp, boxBorder)
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(headerBg)
+                        .then(if (collapsible) Modifier.clickable { expanded = !expanded } else Modifier)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+                        Spacer(Modifier.width(9.dp))
+                        Text(
+                            text = title.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        badge?.let { GlassStatusPill(it, accent) }
+                        if (collapsible) {
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(if (isLight) 0.35f else 0.09f), thickness = 1.dp)
+                AnimatedVisibility(visible = !collapsible || expanded) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(15.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        content = content
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact inner frosted tile designed to sit neatly inside a GlassBox grid.
+ */
+@Composable
+fun GlassBoxTile(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isLight = LocalGlassConfig.current.mode == GlassThemeMode.LIGHT
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(if (isLight) accent.copy(0.08f) else Color.White.copy(0.055f))
+            .border(1.dp, if (isLight) accent.copy(0.20f) else Color.White.copy(0.11f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(accent.copy(0.20f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(19.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 @Composable
 fun LiquidGlassNavBar(
     items: List<Triple<String, String, ImageVector>>,
@@ -243,9 +352,6 @@ fun LiquidGlassNavBar(
     }
 }
 
-/**
- * Pure GPU-accelerated sliding segmented glass tabs.
- */
 @Composable
 fun GlassSegmentedTabs(items: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val cfg = LocalGlassConfig.current

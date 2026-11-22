@@ -40,7 +40,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,7 +76,7 @@ enum class HealthStatus(val label: String) {
 enum class PerformanceProfile(val label: String) {
     BALANCED("Balanced"),
     PERFORMANCE("Performance"),
-    BATTERY("Battery Saver"),
+    BATTERY("Battery"),
     GAMING("Gaming")
 }
 
@@ -153,7 +152,7 @@ object SystemInspector {
         return renderer
     }
 
-    private fun detectTier(requestRoot: Boolean): PrivilegeTier {
+    fun detectTier(requestRoot: Boolean): PrivilegeTier {
         if (Shell.isAppGrantedRoot() == true) return PrivilegeTier.ROOT
         if (requestRoot) {
             val shell = runCatching { Shell.getShell() }.getOrNull()
@@ -284,100 +283,14 @@ object SystemInspector {
         }
 }
 
-// ---------- THEME & UI COMPONENTS ----------
-
-private val NeonPurple = Color(0xFFA855F7)
-private val ElectricBlue = Color(0xFF3B82F6)
-private val CyberCyan = Color(0xFF06B6D4)
-private val StatusGoodColor = Color(0xFF22C55E)
-private val StatusWarnColor = Color(0xFFF59E0B)
-private val StatusDangerColor = Color(0xFFEF4444)
-
-@Composable
-private fun TweakoraTheme(content: @Composable () -> Unit) {
-    val colors = darkColorScheme(
-        primary = NeonPurple,
-        secondary = ElectricBlue,
-        tertiary = CyberCyan,
-        background = Color(0xFF000000),
-        surface = Color(0xFF0C0E14),
-        surfaceVariant = Color(0xFF12151E),
-        outline = Color(0xFF232838),
-        onBackground = Color(0xFFF8FAFC),
-        onSurface = Color(0xFFF8FAFC),
-        onSurfaceVariant = Color(0xFF94A3B8)
-    )
-    val typo = Typography(
-        headlineSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 22.sp),
-        titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
-        labelMedium = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.8.sp),
-        bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 17.sp)
-    )
-    MaterialTheme(colorScheme = colors, typography = typo, content = content)
-}
-
-@Composable
-private fun HudCard(
-    modifier: Modifier = Modifier,
-    glow: Boolean = false,
-    onClick: (() -> Unit)? = null,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    val border = if (glow) {
-        Brush.linearGradient(listOf(NeonPurple.copy(alpha = 0.7f), CyberCyan.copy(alpha = 0.45f)))
-    } else {
-        Brush.linearGradient(listOf(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.outline))
-    }
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, border)
-    ) {
-        Column(Modifier.padding(16.dp), content = content)
-    }
-}
-
-@Composable
-private fun StatusPill(text: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(text = text, color = color, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
-private fun GaugeRow(label: String, value: String, progress: Float, color: Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-        }
-        LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(50)),
-            color = color,
-            trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-        )
-    }
-}
-
-// ---------- ACTIVITY & SHELL ----------
+// ---------- ACTIVITY & GLASS NAVIGATION SHELL ----------
 
 private data class NavTab(val route: String, val label: String, val icon: ImageVector)
 
 class MainActivity : ComponentActivity() {
     companion object {
         init {
-            runCatching {
-                Shell.setDefaultBuilder(Shell.Builder.create().setTimeout(10))
-            }
+            runCatching { Shell.setDefaultBuilder(Shell.Builder.create().setTimeout(10)) }
         }
     }
 
@@ -385,16 +298,33 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            TweakoraTheme {
-                TweakoraAppShell()
+            TweakoraGlassTheme {
+                TweakoraGlassShell()
             }
         }
     }
 }
 
 @Composable
-private fun TweakoraAppShell() {
+private fun TweakoraGlassShell() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val navController = rememberNavController()
+
+    var dna by remember { mutableStateOf<DeviceDna?>(null) }
+    var ramHistory by remember { mutableStateOf(listOf<Float>()) }
+    var tempHistory by remember { mutableStateOf(listOf<Float>()) }
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val snap = SystemInspector.capture(context, requestRoot = false)
+            dna = snap
+            ramHistory = (ramHistory + snap.ramFraction).takeLast(14)
+            tempHistory = (tempHistory + ((snap.batteryTempC - 20f) / 30f).coerceIn(0.05f, 1f)).takeLast(14)
+            delay(2000L)
+        }
+    }
+
     val tabs = listOf(
         NavTab("home", "Home", Icons.Rounded.Dashboard),
         NavTab("tweaks", "Tweaks", Icons.Rounded.Tune),
@@ -413,72 +343,152 @@ private fun TweakoraAppShell() {
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentRoute == tab.route,
-                        onClick = { goTab(tab.route) },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, fontSize = 11.sp) }
-                    )
-                }
-            }
-        }
-    ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(padding)
-        ) {
-            composable("home") {
-                HomeDashboard(
-                    onOpenTab = { goTab(it) },
-                    onOpenRootLab = { navController.navigate("rootlab") }
+    GlassBackdrop {
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
+                GlassBottomNavBar(
+                    tabs = tabs,
+                    currentRoute = currentRoute,
+                    onSelect = { goTab(it) }
                 )
             }
-            composable("tweaks") { PlaceholderScreen("Tweak Library & Time Machine", "Next up in Step 2") }
-            composable("gaming") { PlaceholderScreen("Gaming Centre & Network Lab", "Coming in Step 5") }
-            composable("monitor") { PlaceholderScreen("System Monitor, Battery & Thermal", "Coming in Step 4") }
-            composable("settings") { PlaceholderScreen("Settings, Hardware & Health", "Coming in Step 3") }
-            composable("rootlab") { PlaceholderScreen("Root Laboratory", "Coming in Step 7") }
+        ) { padding ->
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.padding(padding)
+            ) {
+                composable("home") {
+                    GlassHomeDashboard(
+                        dna = dna,
+                        ramHistory = ramHistory,
+                        tempHistory = tempHistory,
+                        onOpenTab = { goTab(it) },
+                        onOpenRootLab = { navController.navigate("rootlab") },
+                        onCheckRoot = {
+                            scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
+                        }
+                    )
+                }
+                composable("tweaks") {
+                    TweaksAndTimeMachineScreen(
+                        deviceTier = dna?.privilegeTier ?: PrivilegeTier.STANDARD,
+                        onTierRefresh = {
+                            scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
+                        }
+                    )
+                }
+                composable("gaming") { GlassPlaceholder("Gaming Centre & Network Lab", "Coming in Phase 5") }
+                composable("monitor") { GlassPlaceholder("System Monitor, Battery & Thermal", "Coming in Phase 4") }
+                composable("settings") { GlassPlaceholder("Hardware Inspector, Health & Settings", "Coming in Phase 3") }
+                composable("rootlab") { GlassPlaceholder("Root Laboratory", "Coming in Phase 7") }
+            }
         }
     }
 }
 
 @Composable
-private fun HomeDashboard(onOpenTab: (String) -> Unit, onOpenRootLab: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var dna by remember { mutableStateOf<DeviceDna?>(null) }
-    var activeProfile by remember { mutableStateOf(PerformanceProfile.BALANCED) }
-
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            dna = SystemInspector.capture(context, requestRoot = false)
-            delay(2000L)
+private fun GlassBottomNavBar(
+    tabs: List<NavTab>,
+    currentRoute: String?,
+    onSelect: (String) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        val shape = RoundedCornerShape(26.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = shape,
+            color = Color(0x99120E24),
+            border = BorderStroke(
+                1.dp,
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.22f),
+                        GlassPalette.NeonPurple.copy(alpha = 0.35f),
+                        GlassPalette.CyberCyan.copy(alpha = 0.28f)
+                    )
+                )
+            )
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tabs.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (selected) GlassPalette.NeonPurple.copy(alpha = 0.24f) else Color.Transparent
+                            )
+                            .clickable { onSelect(tab.route) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            tab.icon,
+                            contentDescription = tab.label,
+                            tint = if (selected) GlassPalette.CyberCyan else GlassPalette.TextMuted,
+                            modifier = Modifier.size(21.dp)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            tab.label,
+                            fontSize = 10.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) Color.White else GlassPalette.TextMuted
+                        )
+                    }
+                }
+            }
         }
     }
+}
 
-    val current = dna
-    if (current == null) {
+// ---------- TRANSPARENT GLASS HOME DASHBOARD ----------
+
+@Composable
+private fun GlassHomeDashboard(
+    dna: DeviceDna?,
+    ramHistory: List<Float>,
+    tempHistory: List<Float>,
+    onOpenTab: (String) -> Unit,
+    onOpenRootLab: () -> Unit,
+    onCheckRoot: () -> Unit
+) {
+    val context = LocalContext.current
+    var activeProfile by remember { mutableStateOf(PerformanceProfile.BALANCED) }
+    var chartTab by remember { mutableIntStateOf(0) } // 0=RAM, 1=Thermal
+    var recentTweaks by remember { mutableStateOf<List<TweakHistoryRecord>>(emptyList()) }
+
+    LaunchedEffect(dna) {
+        recentTweaks = withContext(Dispatchers.IO) { TweakStore.loadHistory(context).take(3) }
+    }
+
+    if (dna == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = NeonPurple)
+            CircularProgressIndicator(color = GlassPalette.CyberCyan)
         }
         return
     }
 
-    val tierColor = when (current.privilegeTier) {
-        PrivilegeTier.ROOT -> NeonPurple
-        PrivilegeTier.SHIZUKU -> CyberCyan
-        PrivilegeTier.STANDARD -> ElectricBlue
+    val tierColor = when (dna.privilegeTier) {
+        PrivilegeTier.ROOT -> GlassPalette.NeonPurple
+        PrivilegeTier.SHIZUKU -> GlassPalette.CyberCyan
+        PrivilegeTier.STANDARD -> GlassPalette.ElectricBlue
     }
-    val healthColor = when (current.healthStatus) {
-        HealthStatus.GOOD -> StatusGoodColor
-        HealthStatus.NEEDS_ATTENTION -> StatusWarnColor
-        HealthStatus.CRITICAL -> StatusDangerColor
+    val healthColor = when (dna.healthStatus) {
+        HealthStatus.GOOD -> GlassPalette.StatusGood
+        HealthStatus.NEEDS_ATTENTION -> GlassPalette.StatusWarn
+        HealthStatus.CRITICAL -> GlassPalette.StatusDanger
     }
 
     LazyColumn(
@@ -486,6 +496,7 @@ private fun HomeDashboard(onOpenTab: (String) -> Unit, onOpenRootLab: () -> Unit
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // 1. Header
         item {
             Row(
                 Modifier.fillMaxWidth(),
@@ -493,36 +504,50 @@ private fun HomeDashboard(onOpenTab: (String) -> Unit, onOpenRootLab: () -> Unit
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("TWEAKORA", style = MaterialTheme.typography.labelMedium, color = NeonPurple)
-                    Text("${current.manufacturer} ${current.model}", style = MaterialTheme.typography.headlineSmall)
+                    Text("TWEAKORA", style = MaterialTheme.typography.labelMedium, color = GlassPalette.CyberCyan)
+                    Text("${dna.manufacturer} ${dna.model}", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        "Android ${current.androidVersion} (API ${current.sdkInt}) • ${current.buildId}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "Android ${dna.androidVersion} (API ${dna.sdkInt}) • ${dna.buildId}",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
-                StatusPill(current.privilegeTier.badge, tierColor)
+                GlassStatusPill(dna.privilegeTier.badge, tierColor)
             }
         }
 
+        // 2. Hero Glass Ring Card (Health + Battery + Profile Switcher)
         item {
-            HudCard(glow = true) {
+            GlassCard(tint = GlassPalette.NeonPurple, glowAccent = GlassPalette.NeonPurple) {
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
-                        Text("DEVICE HEALTH", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text("${current.healthScore}", fontSize = 36.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = healthColor)
-                            Text("/100", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp, start = 2.dp))
-                        }
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        StatusPill(current.healthStatus.label.uppercase(), healthColor)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Profile: ${activeProfile.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    GlassRingGauge(
+                        progress = dna.healthScore / 100f,
+                        centerTitle = "${dna.healthScore}",
+                        centerSubtitle = dna.healthStatus.label,
+                        pillLabel = "${dna.batteryPercent}% BAT"
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GlassStatusPill(dna.healthStatus.label.uppercase(), healthColor)
+                        Text(
+                            text = String.format(Locale.US, "%.1f°C • %s", dna.batteryTempC, dna.thermalStatus),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = GlassPalette.TextPrimary
+                        )
+                        Text(
+                            text = "${if (dna.isCharging) "Charging" else "On Battery"} • ${dna.batteryHealth} (${dna.batteryVoltageMv} mV)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Profile: ${activeProfile.label}",
+                            fontSize = 11.sp,
+                            color = GlassPalette.CyberCyan
+                        )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -531,91 +556,142 @@ private fun HomeDashboard(onOpenTab: (String) -> Unit, onOpenRootLab: () -> Unit
                         FilterChip(
                             selected = activeProfile == p,
                             onClick = { activeProfile = p },
-                            label = { Text(p.label, fontSize = 12.sp) }
+                            label = { Text(p.label, fontSize = 11.sp) }
                         )
                     }
                 }
             }
         }
 
+        // 3. Translucent Gradient Action Banner
         item {
-            HudCard {
-                Text("SYSTEM DNA", style = MaterialTheme.typography.labelMedium, color = CyberCyan)
+            GlassActionBanner(
+                title = "Tweak Library & Time Machine",
+                subtitle = "14 compatible controls • Reversible snapshots & Undo",
+                icon = Icons.Rounded.Tune,
+                onClick = { onOpenTab("tweaks") }
+            )
+        }
+
+        // 4. Colored Translucent Glass Tool Row
+        item {
+            Text("TOOLS", style = MaterialTheme.typography.labelMedium, color = GlassPalette.TextMuted)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GlassToolTile(
+                    title = "Gaming",
+                    subtitle = "Autopsy",
+                    icon = Icons.Rounded.SportsEsports,
+                    accent = GlassPalette.CyberCyan,
+                    onClick = { onOpenTab("gaming") },
+                    modifier = Modifier.weight(1f)
+                )
+                GlassToolTile(
+                    title = "Monitor",
+                    subtitle = "Telemetry",
+                    icon = Icons.Rounded.QueryStats,
+                    accent = GlassPalette.WarmAmber,
+                    onClick = { onOpenTab("monitor") },
+                    modifier = Modifier.weight(1f)
+                )
+                GlassToolTile(
+                    title = "Root Lab",
+                    subtitle = if (dna.privilegeTier == PrivilegeTier.ROOT) "Ready" else "Inspect",
+                    icon = Icons.Rounded.Science,
+                    accent = GlassPalette.NeonPurple,
+                    onClick = onOpenRootLab,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // 5. Live Glowing Wave Telemetry Card
+        item {
+            GlassCard(glowAccent = GlassPalette.CyberCyan) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("LIVE TELEMETRY", style = MaterialTheme.typography.labelMedium, color = GlassPalette.CyberCyan)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = chartTab == 0,
+                            onClick = { chartTab = 0 },
+                            label = { Text("RAM ${(dna.ramFraction * 100).toInt()}%", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = chartTab == 1,
+                            onClick = { chartTab = 1 },
+                            label = { Text(String.format(Locale.US, "%.1f°C", dna.batteryTempC), fontSize = 10.sp) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                GlassWaveChart(
+                    values = if (chartTab == 0) ramHistory else tempHistory,
+                    lineColor = if (chartTab == 0) GlassPalette.CyberCyan else GlassPalette.NeonMagenta
+                )
                 Spacer(Modifier.height(10.dp))
-                SpecRow("Processor", "${current.socName} (${current.cpuCores} Cores)")
-                SpecRow("Live Clock", current.peakLiveClockMhz?.let { "$it MHz peak" } ?: "Protected by SELinux")
-                SpecRow("GPU", current.gpuRenderer)
-                SpecRow("Display", current.displayText)
-                SpecRow("Sensors", "${current.sensorCount} detected")
-                SpecRow("Kernel", current.kernelVersion)
-            }
-        }
-
-        item {
-            HudCard {
-                Text("MEMORY & STORAGE", style = MaterialTheme.typography.labelMedium, color = ElectricBlue)
-                Spacer(Modifier.height(12.dp))
-                GaugeRow("RAM Usage", "${current.usedRamMb} / ${current.totalRamMb} MB", current.ramFraction, NeonPurple)
-                Spacer(Modifier.height(12.dp))
-                GaugeRow(
+                GlassGaugeRow("RAM", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, GlassPalette.NeonPurple)
+                Spacer(Modifier.height(8.dp))
+                GlassGaugeRow(
                     "Storage",
-                    String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", current.usedStorageGb, current.totalStorageGb, current.freeStorageGb),
-                    current.storageFraction,
-                    CyberCyan
+                    String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", dna.usedStorageGb, dna.totalStorageGb, dna.freeStorageGb),
+                    dna.storageFraction,
+                    GlassPalette.CyberCyan
                 )
             }
         }
 
+        // 6. System DNA Glass Card
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HudCard(Modifier.weight(1f)) {
-                    Text("BATTERY", style = MaterialTheme.typography.labelMedium, color = StatusGoodColor)
-                    Spacer(Modifier.height(6.dp))
-                    Text("${current.batteryPercent}%", fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Text("${if (current.isCharging) "Charging" else "Discharging"} • ${current.batteryHealth}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${current.batteryVoltageMv} mV", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                HudCard(Modifier.weight(1f)) {
-                    val tColor = when {
-                        current.batteryTempC >= 42f -> StatusDangerColor
-                        current.batteryTempC >= 38f -> StatusWarnColor
-                        else -> CyberCyan
+            GlassCard {
+                Text("SYSTEM DNA", style = MaterialTheme.typography.labelMedium, color = GlassPalette.NeonPurple)
+                Spacer(Modifier.height(8.dp))
+                SpecRow("Processor", "${dna.socName} (${dna.cpuCores} Cores)")
+                SpecRow("Live Clock", dna.peakLiveClockMhz?.let { "$it MHz peak" } ?: "Protected by SELinux")
+                SpecRow("GPU", dna.gpuRenderer)
+                SpecRow("Display", dna.displayText)
+                SpecRow("Sensors", "${dna.sensorCount} detected")
+                SpecRow("Kernel", dna.kernelVersion)
+            }
+        }
+
+        // 7. Recent Tweaks + Root/Shizuku Check
+        item {
+            GlassCard {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("RECENT TWEAKS", style = MaterialTheme.typography.labelMedium, color = GlassPalette.TextMuted)
+                    TextButton(onClick = onCheckRoot) {
+                        Text("Check Root", fontSize = 12.sp, color = GlassPalette.CyberCyan)
                     }
-                    Text("THERMAL", style = MaterialTheme.typography.labelMedium, color = tColor)
-                    Spacer(Modifier.height(6.dp))
-                    Text(String.format(Locale.US, "%.1f°C", current.batteryTempC), fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = tColor)
-                    Text(current.thermalStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (recentTweaks.isEmpty()) {
                     Text(
-                        current.thermalHeadroom?.let { String.format(Locale.US, "Headroom: %.0f%%", (it * 100f).coerceAtMost(100f)) } ?: "Headroom: N/A",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "No tweaks applied yet. Open Tweaks to explore 14 system controls & capture your baseline snapshot.",
+                        style = MaterialTheme.typography.bodySmall
                     )
-                }
-            }
-        }
-
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                QuickTile("Tweak Library", "Safe & advanced", Icons.Rounded.Tune, NeonPurple, { onOpenTab("tweaks") }, Modifier.weight(1f))
-                QuickTile("Root Lab", if (current.privilegeTier == PrivilegeTier.ROOT) "Unlocked" else "Check status", Icons.Rounded.Science, StatusWarnColor, onOpenRootLab, Modifier.weight(1f))
-            }
-        }
-
-        item {
-            HudCard {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("PRIVILEGE ACCESS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = {
-                        scope.launch { dna = SystemInspector.capture(context, requestRoot = true) }
-                    }) {
-                        Text("Check Root", fontSize = 12.sp)
+                } else {
+                    recentTweaks.forEach { rec ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(rec.tweakName, fontSize = 12.sp, color = GlassPalette.TextPrimary, modifier = Modifier.weight(1f))
+                            Text(
+                                "${rec.previousValue} → ${rec.newValue}",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = if (rec.succeeded) GlassPalette.StatusGood else GlassPalette.StatusDanger
+                            )
+                        }
                     }
                 }
-                Text(
-                    "Current mode: ${current.privilegeTier.badge}. More Control. More Power.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -624,29 +700,19 @@ private fun HomeDashboard(onOpenTab: (String) -> Unit, onOpenRootLab: () -> Unit
 @Composable
 private fun SpecRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.width(12.dp))
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = GlassPalette.TextPrimary, maxLines = 1)
     }
 }
 
 @Composable
-private fun QuickTile(title: String, subtitle: String, icon: ImageVector, color: Color, onClick: () -> Unit, modifier: Modifier) {
-    HudCard(modifier = modifier, onClick = onClick) {
-        Icon(icon, contentDescription = title, tint = color, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.height(8.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(title: String, subtitle: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun GlassPlaceholder(title: String, subtitle: String) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        GlassCard(glowAccent = GlassPalette.NeonPurple) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

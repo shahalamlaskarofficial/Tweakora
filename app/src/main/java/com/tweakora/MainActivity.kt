@@ -84,10 +84,6 @@ private data class StaticHardwareCache(
     val displayText: String, val sensorCount: Int, val kernel: String, val abis: List<String>
 )
 
-/**
- * Battery-optimized System DNA Profiler: caches static hardware specs once at startup
- * so live telemetry ticks only read lightweight RAM, Battery & Thermal sensors.
- */
 object SystemInspector {
     @Volatile private var staticCache: StaticHardwareCache? = null
     @Volatile private var cachedTier: PrivilegeTier? = null
@@ -242,7 +238,6 @@ private fun TweakoraLiquidShell(
     var chargeAlertText by remember { mutableStateOf<String?>(null) }
     var lastChargeAlarmMs by remember { mutableLongStateOf(0L) }
 
-    // Automatically pause polling when app goes to background (0% background battery drain)
     DisposableEffect(context) {
         val owner = context as? LifecycleOwner
         val obs = LifecycleEventObserver { _, event ->
@@ -264,7 +259,6 @@ private fun TweakoraLiquidShell(
                 val fired = SmartRulesEngine.evaluateLive(context, snap)
                 if (fired.isNotEmpty()) ruleLogs = (fired + ruleLogs).take(20)
 
-                // Live Smart Charge Guard Alert
                 if (settings.chargeGuardEnabled && snap.isCharging && (snap.batteryPercent >= settings.chargeLimitPct || snap.batteryTempC >= 41f)) {
                     chargeAlertText = "Charge Guard: ${snap.batteryPercent}% (${String.format(Locale.US, "%.1f°C", snap.batteryTempC)}) — Unplug charger to protect battery health."
                     val now = System.currentTimeMillis()
@@ -276,7 +270,7 @@ private fun TweakoraLiquidShell(
                     chargeAlertText = null
                 }
             }
-            if (settings.pollIntervalSec <= 0) break // Manual mode
+            if (settings.pollIntervalSec <= 0) break
             delay(settings.pollIntervalSec * 1000L)
         }
     }
@@ -319,6 +313,7 @@ private fun TweakoraLiquidShell(
                         latestRuleLog = ruleLogs.firstOrNull(),
                         chargeAlertText = chargeAlertText,
                         onOpenTab = { goTab(it) },
+                        onOpenSources = { navController.navigate("sources") },
                         onOpenCleaner = { navController.navigate("cleaner") },
                         onOpenRootLab = { navController.navigate("rootlab") },
                         onOpenSmartRules = { navController.navigate("rules") },
@@ -349,6 +344,9 @@ private fun TweakoraLiquidShell(
                         onRefreshDna = { scope.launch { dna = SystemInspector.capture(context, requestRoot = true) } }
                     )
                 }
+                composable("sources") {
+                    SourcesAndLabScreen(dna = dna, onBack = { navController.popBackStack() })
+                }
                 composable("cleaner") {
                     CleanerAndBypassScreen(
                         dna = dna, settings = settings, onUpdateSettings = onUpdateSettings,
@@ -364,7 +362,7 @@ private fun TweakoraLiquidShell(
                 }
             }
 
-            if (currentRoute !in listOf("rootlab", "rules", "cleaner")) {
+            if (currentRoute !in listOf("rootlab", "rules", "cleaner", "sources")) {
                 LiquidGlassNavBar(
                     items = navTabs,
                     currentRoute = currentRoute,
@@ -384,6 +382,7 @@ private fun GlassHomeDashboard(
     latestRuleLog: RuleEventLog?,
     chargeAlertText: String?,
     onOpenTab: (String) -> Unit,
+    onOpenSources: () -> Unit,
     onOpenCleaner: () -> Unit,
     onOpenRootLab: () -> Unit,
     onOpenSmartRules: () -> Unit,
@@ -398,7 +397,6 @@ private fun GlassHomeDashboard(
     var chartTab by remember { mutableIntStateOf(0) }
     var recentTweaks by remember { mutableStateOf<List<TweakHistoryRecord>>(emptyList()) }
 
-    // Load recent tweaks once when Home opens (not every tick -> saves battery & prevents UI stutter)
     LaunchedEffect(Unit) {
         recentTweaks = withContext(Dispatchers.IO) { TweakStore.loadHistory(context).take(3) }
     }
@@ -420,6 +418,7 @@ private fun GlassHomeDashboard(
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(15.dp)
     ) {
+        // 1. Header
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -433,6 +432,7 @@ private fun GlassHomeDashboard(
             }
         }
 
+        // Active Alerts
         chargeAlertText?.let { alert ->
             item {
                 GlassCard(tint = GlassPalette.StatusGood, glowAccent = GlassPalette.StatusGood, onClick = onOpenCleaner) {
@@ -442,7 +442,6 @@ private fun GlassHomeDashboard(
                 }
             }
         }
-
         latestRuleLog?.let { log ->
             item {
                 GlassCard(tint = GlassPalette.WarmAmber, glowAccent = GlassPalette.WarmAmber, onClick = onOpenSmartRules) {
@@ -452,19 +451,19 @@ private fun GlassHomeDashboard(
             }
         }
 
+        // 2. GLASS BOX 1: DEVICE HEALTH & PROFILE
         item {
-            GlassCard(tint = cfg.accent.primary, glowAccent = cfg.accent.primary) {
+            GlassBox(title = "Device Health & Profile", accent = healthColor, badge = dna.healthStatus.label.uppercase()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     GlassRingGauge(dna.healthScore / 100f, "${dna.healthScore}", dna.healthStatus.label, "${dna.batteryPercent}% BAT")
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        GlassStatusPill(dna.healthStatus.label.uppercase(), healthColor)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(String.format(Locale.US, "%.1f°C • %s", dna.batteryTempC, dna.thermalStatus), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("${if (dna.isCharging) "Charging" else "On Battery"} • ${dna.batteryHealth} (${dna.batteryVoltageMv} mV)", style = MaterialTheme.typography.bodySmall)
-                        Text("Profile: ${activeProfile.label}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cfg.accent.secondary)
+                        Text("${if (dna.isCharging) "Charging" else "On Battery"} • ${dna.batteryHealth}", style = MaterialTheme.typography.bodySmall)
+                        Text("${dna.batteryVoltageMv} mV • ${dna.cpuCores} Cores", style = MaterialTheme.typography.bodySmall)
+                        Text("Active: ${activeProfile.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cfg.accent.secondary)
                     }
                 }
-                Spacer(Modifier.height(14.dp))
                 GlassSegmentedTabs(
                     items = PerformanceProfile.entries.map { it.label },
                     selectedIndex = PerformanceProfile.entries.indexOf(activeProfile),
@@ -475,79 +474,97 @@ private fun GlassHomeDashboard(
                             scope.launch {
                                 val anim = TweakEngine.catalog.first { it.id == "anim_transition" }
                                 val rec = TweakEngine.applyTweak(context, anim, p.animScale)
-                                profileFeedback = if (rec.succeeded) "${p.label} active (${p.animScale}x transitions)." else "${p.label} selected."
+                                profileFeedback = if (rec.succeeded) "${p.label} applied (${p.animScale}x transitions)." else "${p.label} selected."
                             }
                         } else profileFeedback = "${p.label} selected. Grant Shizuku in Tools to auto-apply."
                     }
                 )
-                profileFeedback?.let { Spacer(Modifier.height(8.dp)); Text(it, fontSize = 12.5.sp, color = cfg.accent.secondary) }
+                profileFeedback?.let { Text(it, fontSize = 12.5.sp, color = cfg.accent.secondary) }
             }
         }
 
-        // Quick Action Banner for Cleaner & Bypass Charging
+        // 3. GLASS BOX 2: UNIFIED CONTROL CENTRE (All 6 Hubs Organized Inside One Glass Box)
         item {
-            GlassActionBanner(
-                title = "RAM Cleaner, Junk & Bypass Charging",
-                subtitle = "Free memory safely, clean leftover files & protect battery charging",
-                icon = Icons.Rounded.CleaningServices,
-                onClick = onOpenCleaner
-            )
-        }
-
-        item {
-            Text("CONTROL CENTRE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GlassToolTile("Tweaks", "24 controls", Icons.Rounded.Tune, cfg.accent.primary, { onOpenTab("tweaks") }, Modifier.weight(1f))
-                GlassToolTile("Gaming", "Autopsy & Hz", Icons.Rounded.SportsEsports, cfg.accent.secondary, { onOpenTab("gaming") }, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GlassToolTile("Perf Labs", "Bench & Temp", Icons.Rounded.Speed, GlassPalette.WarmAmber, { onOpenTab("monitor") }, Modifier.weight(1f))
-                GlassToolTile("Smart Rules", "Auto & Sim", Icons.Rounded.Bolt, GlassPalette.NeonMagenta, onOpenSmartRules, Modifier.weight(1f))
+            GlassBox(title = "Control Hub", accent = cfg.accent.primary, badge = "6 MODULES") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassBoxTile("Sources & Lab", "Sensors+Audio", Icons.Rounded.Sensors, cfg.accent.secondary, onOpenSources, Modifier.weight(1f))
+                    GlassBoxTile("Cleaner", "RAM & Bypass", Icons.Rounded.CleaningServices, GlassPalette.StatusGood, onOpenCleaner, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassBoxTile("Tweaks", "24 controls", Icons.Rounded.Tune, cfg.accent.primary, { onOpenTab("tweaks") }, Modifier.weight(1f))
+                    GlassBoxTile("Gaming", "Autopsy & Hz", Icons.Rounded.SportsEsports, GlassPalette.ElectricBlue, { onOpenTab("gaming") }, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassBoxTile("Perf Labs", "Bench & Temp", Icons.Rounded.Speed, GlassPalette.WarmAmber, { onOpenTab("monitor") }, Modifier.weight(1f))
+                    GlassBoxTile("Smart Rules", "Auto & Sim", Icons.Rounded.Bolt, GlassPalette.NeonMagenta, onOpenSmartRules, Modifier.weight(1f))
+                }
             }
         }
 
+        // 4. GLASS BOX 3: LIVE TELEMETRY SOURCES
         item {
-            GlassCard(glowAccent = cfg.accent.secondary) {
-                Text("LIVE TELEMETRY", style = MaterialTheme.typography.labelMedium, color = cfg.accent.secondary)
-                Spacer(Modifier.height(10.dp))
-                GlassSegmentedTabs(listOf("RAM ${(dna.ramFraction * 100).toInt()}%", String.format(Locale.US, "Thermal %.1f°C", dna.batteryTempC)), chartTab, { chartTab = it })
-                Spacer(Modifier.height(10.dp))
+            GlassBox(
+                title = "Live Telemetry Sources",
+                accent = cfg.accent.secondary,
+                badge = "RAM ${(dna.ramFraction * 100).toInt()}%",
+                collapsible = true,
+                initiallyExpanded = true
+            ) {
+                GlassSegmentedTabs(
+                    listOf("RAM ${(dna.ramFraction * 100).toInt()}%", String.format(Locale.US, "Thermal %.1f°C", dna.batteryTempC)),
+                    chartTab,
+                    { chartTab = it }
+                )
                 GlassWaveChart(if (chartTab == 0) ramHistory else tempHistory, if (chartTab == 0) cfg.accent.secondary else GlassPalette.NeonMagenta)
-                Spacer(Modifier.height(12.dp))
-                GlassGaugeRow("RAM Usage", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, cfg.accent.primary)
-                Spacer(Modifier.height(10.dp))
-                GlassGaugeRow("Storage", String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", dna.usedStorageGb, dna.totalStorageGb, dna.freeStorageGb), dna.storageFraction, cfg.accent.secondary)
+                GlassGaugeRow("RAM Source", "${dna.usedRamMb} / ${dna.totalRamMb} MB", dna.ramFraction, cfg.accent.primary)
+                GlassGaugeRow("Storage Source", String.format(Locale.US, "%.1f / %.1f GB (%.1f GB free)", dna.usedStorageGb, dna.totalStorageGb, dna.freeStorageGb), dna.storageFraction, cfg.accent.secondary)
             }
         }
 
+        // 5. GLASS BOX 4: SYSTEM DNA SOURCES (Collapsible)
         item {
-            GlassCard(onClick = { onOpenTab("settings") }) {
-                Text("SYSTEM DNA", style = MaterialTheme.typography.labelMedium, color = cfg.accent.primary)
-                Spacer(Modifier.height(6.dp))
+            GlassBox(
+                title = "System DNA Sources",
+                accent = cfg.accent.primary,
+                badge = "${dna.sensorCount} SENSORS",
+                collapsible = true,
+                initiallyExpanded = true
+            ) {
                 GlassSpecRow("Processor", "${dna.socName} (${dna.cpuCores} Cores)")
                 GlassSpecRow("Live Clock", dna.peakLiveClockMhz?.let { "$it MHz peak" } ?: "SELinux Protected")
-                GlassSpecRow("GPU", dna.gpuRenderer)
-                GlassSpecRow("Display", dna.displayText)
-                GlassSpecRow("Sensors", "${dna.sensorCount} detected")
+                GlassSpecRow("GPU Renderer", dna.gpuRenderer)
+                GlassSpecRow("Display Panel", dna.displayText)
+                GlassSpecRow("Kernel", dna.kernelVersion)
+                GlassPillButton(
+                    text = "Open All Live Sensor & Audio Sources",
+                    onClick = onOpenSources,
+                    gradient = listOf(cfg.accent.primary, cfg.accent.secondary),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
+        // 6. GLASS BOX 5: ROOT LAB & RECENT TWEAKS (Collapsible)
         item {
-            GlassCard {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("RECENT TWEAKS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row {
-                        TextButton(onClick = onCheckRoot) { Text("Check Root", fontSize = 13.sp, color = cfg.accent.secondary) }
-                        TextButton(onClick = onOpenRootLab) { Text("Root Lab", fontSize = 13.sp, color = GlassPalette.WarmAmber) }
-                    }
+            GlassBox(
+                title = "Recent Tweaks & Access",
+                accent = GlassPalette.WarmAmber,
+                badge = dna.privilegeTier.badge,
+                collapsible = true,
+                initiallyExpanded = false
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassPillButton("Check Root", onClick = onCheckRoot, modifier = Modifier.weight(1f))
+                    GlassPillButton("Open Root Lab", onClick = onOpenRootLab, gradient = listOf(cfg.accent.primary, GlassPalette.WarmAmber), modifier = Modifier.weight(1f))
                 }
-                if (recentTweaks.isEmpty()) Text("No tweaks applied yet. Open Tweaks to explore 24 controls & Time Machine.", style = MaterialTheme.typography.bodySmall)
-                else recentTweaks.forEach { rec ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(rec.tweakName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Text("${rec.previousValue} → ${rec.newValue}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (rec.succeeded) GlassPalette.StatusGood else GlassPalette.StatusDanger)
+                if (recentTweaks.isEmpty()) {
+                    Text("No tweaks applied yet. Explore 24 controls or one-tap Presets.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    recentTweaks.forEach { rec ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(rec.tweakName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text("${rec.previousValue} → ${rec.newValue}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (rec.succeeded) GlassPalette.StatusGood else GlassPalette.StatusDanger)
+                        }
                     }
                 }
             }

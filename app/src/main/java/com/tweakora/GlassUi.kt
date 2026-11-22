@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,15 +27,41 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.sin
 
+enum class GlassThemeMode(val label: String) {
+    MIDNIGHT("Midnight Glass"),
+    AMOLED("AMOLED Glass"),
+    LIGHT("Frosted Light")
+}
+
+enum class GlassAccent(
+    val label: String,
+    val primary: Color,
+    val secondary: Color,
+    val glow: Color
+) {
+    NEON_PURPLE("Neon Purple", Color(0xFFA855F7), Color(0xFF06B6D4), Color(0xFFEC4899)),
+    CYBER_CYAN("Cyber Cyan", Color(0xFF06B6D4), Color(0xFF3B82F6), Color(0xFFA855F7)),
+    ELECTRIC_BLUE("Electric Blue", Color(0xFF3B82F6), Color(0xFF06B6D4), Color(0xFFA855F7)),
+    SOLAR_AMBER("Solar Amber", Color(0xFFF59E0B), Color(0xFFEC4899), Color(0xFFA855F7))
+}
+
+data class GlassThemeConfig(
+    val mode: GlassThemeMode = GlassThemeMode.MIDNIGHT,
+    val accent: GlassAccent = GlassAccent.NEON_PURPLE
+)
+
+val LocalGlassConfig = compositionLocalOf { GlassThemeConfig() }
+
 object GlassPalette {
-    val DeepNight = Color(0xFF070612)
-    val MidnightPurple = Color(0xFF130B29)
+    val DeepNight = Color(0xFF060510)
+    val MidnightPurple = Color(0xFF140B2D)
     val NeonPurple = Color(0xFFA855F7)
     val NeonMagenta = Color(0xFFEC4899)
     val ElectricBlue = Color(0xFF3B82F6)
@@ -43,90 +71,120 @@ object GlassPalette {
     val StatusWarn = Color(0xFFF59E0B)
     val StatusDanger = Color(0xFFEF4444)
     val TextPrimary = Color(0xFFF8FAFC)
-    val TextMuted = Color(0xFFA3AEC6)
+    val TextMuted = Color(0xFFAEB9D4)
 }
 
 @Composable
-fun TweakoraGlassTheme(content: @Composable () -> Unit) {
-    val colors = darkColorScheme(
-        primary = GlassPalette.NeonPurple,
-        secondary = GlassPalette.ElectricBlue,
-        tertiary = GlassPalette.CyberCyan,
-        background = GlassPalette.DeepNight,
-        surface = Color(0xFF0E0B1E),
-        surfaceVariant = Color(0x22FFFFFF),
-        outline = Color(0x33FFFFFF),
-        onBackground = GlassPalette.TextPrimary,
-        onSurface = GlassPalette.TextPrimary,
-        onSurfaceVariant = GlassPalette.TextMuted
-    )
+fun TweakoraGlassTheme(
+    config: GlassThemeConfig = GlassThemeConfig(),
+    content: @Composable () -> Unit
+) {
+    val isLight = config.mode == GlassThemeMode.LIGHT
+    val colors = if (isLight) {
+        lightColorScheme(
+            primary = config.accent.primary,
+            secondary = config.accent.secondary,
+            tertiary = config.accent.glow,
+            background = Color(0xFFEDF1FA),
+            surface = Color(0xCCFFFFFF),
+            surfaceVariant = Color(0xAAFFFFFF),
+            outline = Color(0x330F172A),
+            onBackground = Color(0xFF0F172A),
+            onSurface = Color(0xFF0F172A),
+            onSurfaceVariant = Color(0xFF475569)
+        )
+    } else {
+        darkColorScheme(
+            primary = config.accent.primary,
+            secondary = config.accent.secondary,
+            tertiary = config.accent.glow,
+            background = if (config.mode == GlassThemeMode.AMOLED) Color.Black else GlassPalette.DeepNight,
+            surface = Color(0xFF100C22),
+            surfaceVariant = Color(0x20FFFFFF),
+            outline = Color(0x33FFFFFF),
+            onBackground = GlassPalette.TextPrimary,
+            onSurface = GlassPalette.TextPrimary,
+            onSurfaceVariant = GlassPalette.TextMuted
+        )
+    }
+
     val typo = Typography(
-        headlineSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 22.sp, color = GlassPalette.TextPrimary),
-        titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = GlassPalette.TextPrimary),
+        headlineSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = (-0.3).sp),
+        titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
         labelMedium = TextStyle(
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 11.sp,
-            letterSpacing = 0.9.sp
+            fontSize = 10.5.sp,
+            letterSpacing = 1.0.sp
         ),
-        bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, color = GlassPalette.TextMuted)
+        bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 17.sp)
     )
-    MaterialTheme(colorScheme = colors, typography = typo, content = content)
+
+    CompositionLocalProvider(LocalGlassConfig provides config) {
+        MaterialTheme(colorScheme = colors, typography = typo, content = content)
+    }
 }
 
-/**
- * Deep midnight ambient canvas with glowing radial glassmorphism orbs behind translucent cards.
- */
 @Composable
 fun GlassBackdrop(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(GlassPalette.MidnightPurple, GlassPalette.DeepNight, Color(0xFF050711))
-                )
-            )
-    ) {
+    val cfg = LocalGlassConfig.current
+    val bgBrush = when (cfg.mode) {
+        GlassThemeMode.MIDNIGHT -> Brush.verticalGradient(
+            listOf(Color(0xFF180C36), Color(0xFF090717), Color(0xFF050712))
+        )
+        GlassThemeMode.AMOLED -> Brush.verticalGradient(
+            listOf(Color(0xFF080412), Color(0xFF000000), Color(0xFF000000))
+        )
+        GlassThemeMode.LIGHT -> Brush.verticalGradient(
+            listOf(Color(0xFFE9EEFC), Color(0xFFF3F6FF), Color(0xFFE7EFFA))
+        )
+    }
+    val orbAlpha = when (cfg.mode) {
+        GlassThemeMode.MIDNIGHT -> 1.0f
+        GlassThemeMode.AMOLED -> 0.55f
+        GlassThemeMode.LIGHT -> 0.45f
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(bgBrush)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(GlassPalette.NeonPurple.copy(alpha = 0.28f), Color.Transparent),
-                    center = Offset(size.width * 0.12f, size.height * 0.14f),
-                    radius = size.width * 0.72f
+                    colors = listOf(cfg.accent.primary.copy(alpha = 0.34f * orbAlpha), Color.Transparent),
+                    center = Offset(size.width * 0.14f, size.height * 0.10f),
+                    radius = size.width * 0.78f
                 ),
-                radius = size.width * 0.72f,
-                center = Offset(size.width * 0.12f, size.height * 0.14f)
+                radius = size.width * 0.78f,
+                center = Offset(size.width * 0.14f, size.height * 0.10f)
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(GlassPalette.CyberCyan.copy(alpha = 0.22f), Color.Transparent),
-                    center = Offset(size.width * 0.90f, size.height * 0.38f),
-                    radius = size.width * 0.65f
-                ),
-                radius = size.width * 0.65f,
-                center = Offset(size.width * 0.90f, size.height * 0.38f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(GlassPalette.NeonMagenta.copy(alpha = 0.20f), Color.Transparent),
-                    center = Offset(size.width * 0.25f, size.height * 0.82f),
+                    colors = listOf(cfg.accent.secondary.copy(alpha = 0.26f * orbAlpha), Color.Transparent),
+                    center = Offset(size.width * 0.92f, size.height * 0.34f),
                     radius = size.width * 0.68f
                 ),
                 radius = size.width * 0.68f,
-                center = Offset(size.width * 0.25f, size.height * 0.82f)
+                center = Offset(size.width * 0.92f, size.height * 0.34f)
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(GlassPalette.WarmAmber.copy(alpha = 0.13f), Color.Transparent),
-                    center = Offset(size.width * 0.82f, size.height * 0.88f),
-                    radius = size.width * 0.55f
+                    colors = listOf(cfg.accent.glow.copy(alpha = 0.24f * orbAlpha), Color.Transparent),
+                    center = Offset(size.width * 0.18f, size.height * 0.78f),
+                    radius = size.width * 0.70f
                 ),
-                radius = size.width * 0.55f,
-                center = Offset(size.width * 0.82f, size.height * 0.88f)
+                radius = size.width * 0.70f,
+                center = Offset(size.width * 0.18f, size.height * 0.78f)
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(GlassPalette.WarmAmber.copy(alpha = 0.14f * orbAlpha), Color.Transparent),
+                    center = Offset(size.width * 0.85f, size.height * 0.90f),
+                    radius = size.width * 0.52f
+                ),
+                radius = size.width * 0.52f,
+                center = Offset(size.width * 0.85f, size.height * 0.90f)
             )
         }
         content()
@@ -134,37 +192,57 @@ fun GlassBackdrop(
 }
 
 /**
- * Translucent frosted glass container with luminous top-left specular border.
+ * Refined translucent frosted glass card with luminous top-left rim and readable inner tint.
  */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     glowAccent: Color? = null,
-    cornerRadius: Dp = 20.dp,
+    cornerRadius: Dp = 22.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val cfg = LocalGlassConfig.current
+    val isLight = cfg.mode == GlassThemeMode.LIGHT
     val shape = RoundedCornerShape(cornerRadius)
-    val fillBrush = Brush.linearGradient(
-        colors = listOf(
-            tint.copy(alpha = 0.12f),
-            tint.copy(alpha = 0.05f),
-            (glowAccent ?: GlassPalette.NeonPurple).copy(alpha = 0.06f)
+    val accent = glowAccent ?: cfg.accent.primary
+
+    val fillBrush = if (isLight) {
+        Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = 0.76f), Color.White.copy(alpha = 0.54f))
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF1F1B38).copy(alpha = 0.58f),
+                Color(0xFF110E22).copy(alpha = 0.46f)
+            )
+        )
+    }
+
+    val tintOverlay = Brush.linearGradient(
+        listOf(
+            tint.copy(alpha = if (isLight) 0.08f else 0.11f),
+            Color.Transparent,
+            accent.copy(alpha = if (isLight) 0.06f else 0.08f)
         )
     )
+
     val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            (glowAccent ?: Color.White).copy(alpha = 0.36f),
-            Color.White.copy(alpha = 0.10f),
-            GlassPalette.CyberCyan.copy(alpha = 0.22f)
+        listOf(
+            (if (isLight) Color.White else Color.White).copy(alpha = if (isLight) 0.85f else 0.28f),
+            accent.copy(alpha = 0.22f),
+            cfg.accent.secondary.copy(alpha = 0.24f)
         )
     )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(fillBrush)
+            .background(tintOverlay)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         Surface(
@@ -182,8 +260,60 @@ fun GlassCard(
 }
 
 /**
- * Circular luminous ring gauge with gradient sweep & bottom percentage pill.
+ * Sleek segmented glass pill bar for switching sub-sections conveniently with one thumb.
  */
+@Composable
+fun GlassSegmentedTabs(
+    items: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cfg = LocalGlassConfig.current
+    val isLight = cfg.mode == GlassThemeMode.LIGHT
+    val shape = RoundedCornerShape(50)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = shape,
+        color = if (isLight) Color.White.copy(alpha = 0.55f) else Color(0x66120D26),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (isLight) 0.7f else 0.16f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items.forEachIndexed { idx, label ->
+                val selected = idx == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .background(
+                            if (selected) {
+                                Brush.horizontalGradient(listOf(cfg.accent.primary, cfg.accent.secondary))
+                            } else {
+                                Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            }
+                        )
+                        .clickable { onSelect(idx) }
+                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun GlassRingGauge(
     progress: Float,
@@ -191,18 +321,18 @@ fun GlassRingGauge(
     centerSubtitle: String,
     pillLabel: String,
     modifier: Modifier = Modifier,
-    size: Dp = 128.dp
+    size: Dp = 132.dp
 ) {
+    val cfg = LocalGlassConfig.current
     val clamped = progress.coerceIn(0f, 1f)
     Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-            val strokePx = 7.dp.toPx()
+            val strokePx = 8.dp.toPx()
             val arcSize = Size(this.size.width - strokePx, this.size.height - strokePx)
             val topLeft = Offset(strokePx / 2f, strokePx / 2f)
 
-            // Outer translucent track
             drawArc(
-                color = Color.White.copy(alpha = 0.12f),
+                color = Color.White.copy(alpha = 0.14f),
                 startAngle = 135f,
                 sweepAngle = 270f,
                 useCenter = false,
@@ -211,16 +341,15 @@ fun GlassRingGauge(
                 style = Stroke(width = strokePx, cap = StrokeCap.Round)
             )
 
-            // Gradient progress arc
             val sweep = 270f * clamped
             drawArc(
                 brush = Brush.sweepGradient(
                     listOf(
-                        GlassPalette.CyberCyan,
-                        GlassPalette.NeonPurple,
+                        cfg.accent.secondary,
+                        cfg.accent.primary,
                         GlassPalette.WarmAmber,
-                        GlassPalette.NeonMagenta,
-                        GlassPalette.CyberCyan
+                        cfg.accent.glow,
+                        cfg.accent.secondary
                     )
                 ),
                 startAngle = 135f,
@@ -231,27 +360,26 @@ fun GlassRingGauge(
                 style = Stroke(width = strokePx, cap = StrokeCap.Round)
             )
 
-            // Glowing indicator dot at arc tip
             val angleRad = Math.toRadians((135f + sweep).toDouble())
             val radius = arcSize.width / 2f
             val cx = this.size.width / 2f + (radius * cos(angleRad)).toFloat()
             val cy = this.size.height / 2f + (radius * sin(angleRad)).toFloat()
-            drawCircle(color = Color.White.copy(alpha = 0.45f), radius = 6.dp.toPx(), center = Offset(cx, cy))
-            drawCircle(color = Color.White, radius = 3.dp.toPx(), center = Offset(cx, cy))
+            drawCircle(color = cfg.accent.secondary.copy(alpha = 0.55f), radius = 7.dp.toPx(), center = Offset(cx, cy))
+            drawCircle(color = Color.White, radius = 3.2.dp.toPx(), center = Offset(cx, cy))
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = centerTitle,
-                fontSize = 24.sp,
+                fontSize = 25.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
-                color = GlassPalette.TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = centerSubtitle,
                 fontSize = 10.sp,
-                color = GlassPalette.TextMuted
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -260,11 +388,9 @@ fun GlassRingGauge(
                 .align(Alignment.BottomCenter)
                 .clip(RoundedCornerShape(50))
                 .background(
-                    Brush.horizontalGradient(
-                        listOf(GlassPalette.ElectricBlue.copy(alpha = 0.85f), GlassPalette.CyberCyan.copy(alpha = 0.85f))
-                    )
+                    Brush.horizontalGradient(listOf(cfg.accent.primary, cfg.accent.secondary))
                 )
-                .padding(horizontal = 10.dp, vertical = 2.dp)
+                .padding(horizontal = 10.dp, vertical = 3.dp)
         ) {
             Text(
                 text = pillLabel,
@@ -277,9 +403,6 @@ fun GlassRingGauge(
     }
 }
 
-/**
- * Translucent warm-magenta-to-amber glass action banner with chevron arrow.
- */
 @Composable
 fun GlassActionBanner(
     title: String,
@@ -288,7 +411,8 @@ fun GlassActionBanner(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val cfg = LocalGlassConfig.current
+    val shape = RoundedCornerShape(20.dp)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -296,9 +420,9 @@ fun GlassActionBanner(
             .background(
                 Brush.horizontalGradient(
                     listOf(
-                        GlassPalette.NeonPurple.copy(alpha = 0.30f),
-                        GlassPalette.NeonMagenta.copy(alpha = 0.24f),
-                        GlassPalette.WarmAmber.copy(alpha = 0.28f)
+                        cfg.accent.primary.copy(alpha = 0.38f),
+                        cfg.accent.glow.copy(alpha = 0.30f),
+                        GlassPalette.WarmAmber.copy(alpha = 0.32f)
                     )
                 )
             )
@@ -311,7 +435,7 @@ fun GlassActionBanner(
             border = BorderStroke(
                 1.dp,
                 Brush.horizontalGradient(
-                    listOf(Color.White.copy(alpha = 0.30f), GlassPalette.WarmAmber.copy(alpha = 0.45f))
+                    listOf(Color.White.copy(alpha = 0.36f), GlassPalette.WarmAmber.copy(alpha = 0.55f))
                 )
             )
         ) {
@@ -321,17 +445,17 @@ fun GlassActionBanner(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f)),
+                        .background(Color.White.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(21.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.78f))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.84f))
                 }
                 Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = GlassPalette.WarmAmber)
             }
@@ -339,9 +463,6 @@ fun GlassActionBanner(
     }
 }
 
-/**
- * Compact tinted translucent glass tile for dashboard tool shortcuts.
- */
 @Composable
 fun GlassToolTile(
     title: String,
@@ -355,27 +476,37 @@ fun GlassToolTile(
         modifier = modifier,
         tint = accent,
         glowAccent = accent,
-        cornerRadius = 18.dp,
+        cornerRadius = 20.dp,
         onClick = onClick
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .size(36.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(accent.copy(alpha = 0.22f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(19.dp))
+            Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.height(10.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, fontSize = 14.sp, maxLines = 1)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontSize = 13.5.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
-/**
- * Smooth glowing wave spline chart for live RAM / Thermal / Battery telemetry.
- */
 @Composable
 fun GlassWaveChart(
     values: List<Float>,
@@ -385,14 +516,13 @@ fun GlassWaveChart(
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(92.dp)
+            .height(94.dp)
     ) {
-        val points = if (values.size >= 2) values else listOf(0.4f, 0.45f, 0.42f, 0.5f)
+        val points = if (values.size >= 2) values else listOf(0.35f, 0.42f, 0.39f, 0.48f)
         val w = size.width
         val h = size.height
         val padY = 10.dp.toPx()
 
-        // Vertical dashed/faint glass gridlines
         for (i in 1..4) {
             val gx = w * (i / 5f)
             drawLine(
@@ -428,18 +558,16 @@ fun GlassWaveChart(
 
         drawPath(
             path = fillPath,
-            brush = Brush.verticalGradient(
-                listOf(lineColor.copy(alpha = 0.28f), Color.Transparent)
-            )
+            brush = Brush.verticalGradient(listOf(lineColor.copy(alpha = 0.32f), Color.Transparent))
         )
         drawPath(
             path = linePath,
             color = lineColor,
-            style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+            style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round)
         )
 
         val last = coords.last()
-        drawCircle(color = lineColor.copy(alpha = 0.35f), radius = 7.dp.toPx(), center = last)
+        drawCircle(color = lineColor.copy(alpha = 0.38f), radius = 7.dp.toPx(), center = last)
         drawCircle(color = Color.White, radius = 3.dp.toPx(), center = last)
     }
 }
@@ -449,7 +577,7 @@ fun GlassStatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.18f))
+            .background(color.copy(alpha = 0.20f))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(text = text, color = color, style = MaterialTheme.typography.labelMedium)
@@ -468,10 +596,17 @@ fun GlassPillButton(
             .clip(RoundedCornerShape(50))
             .background(Brush.horizontalGradient(gradient))
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 9.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+        Text(
+            text = text,
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -479,25 +614,49 @@ fun GlassPillButton(
 fun GlassGaugeRow(label: String, value: String, progress: Float, color: Color) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.bodySmall)
-            Text(value, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = GlassPalette.TextPrimary)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                value,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(7.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color.White.copy(alpha = 0.10f))
+                .background(Color.White.copy(alpha = 0.12f))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(progress.coerceIn(0f, 1f))
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(50))
-                    .background(
-                        Brush.horizontalGradient(listOf(color.copy(alpha = 0.7f), color))
-                    )
+                    .background(Brush.horizontalGradient(listOf(color.copy(alpha = 0.72f), color)))
             )
         }
+    }
+}
+
+@Composable
+fun GlassSpecRow(label: String, value: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
